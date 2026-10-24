@@ -27,10 +27,10 @@ class BonjourAdvertiser(context: Context) {
             txt.forEach { (k, v) -> setAttribute(k, v) }
         }
         val l = object : NsdManager.RegistrationListener {
-            override fun onServiceRegistered(s: NsdServiceInfo) = Log.i(TAG, "registered ${s.serviceName}")
-            override fun onRegistrationFailed(s: NsdServiceInfo, code: Int) = Log.e(TAG, "register failed $code")
-            override fun onServiceUnregistered(s: NsdServiceInfo) = Log.i(TAG, "unregistered")
-            override fun onUnregistrationFailed(s: NsdServiceInfo, code: Int) = Log.e(TAG, "unregister failed $code")
+            override fun onServiceRegistered(s: NsdServiceInfo) { Log.i(TAG, "registered ${s.serviceName}") }
+            override fun onRegistrationFailed(s: NsdServiceInfo, code: Int) { Log.e(TAG, "register failed $code") }
+            override fun onServiceUnregistered(s: NsdServiceInfo) { Log.i(TAG, "unregistered") }
+            override fun onUnregistrationFailed(s: NsdServiceInfo, code: Int) { Log.e(TAG, "unregister failed $code") }
         }
         nsd.registerService(info, NsdManager.PROTOCOL_DNS_SD, l)
         listener = l
