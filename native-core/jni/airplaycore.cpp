@@ -155,9 +155,49 @@ Java_com_airplay_receiver_net_AirPlayCore_nativeStart(JNIEnv *env, jobject thiz,
     raop_start_httpd(g_raop, &p);
     LOG("airplay core started on port %u", p);
 
-    // Minimal TXT; refined later (NsdManager carries discovery for now).
+    // Build the _airplay._tcp TXT record iOS needs to offer mirroring. The key
+    // values come from the core itself (features, pk) so they match what it uses
+    // during /pair-verify. Missing deviceid/features/pk is why iOS hid us.
+    char deviceid[18];
+    snprintf(deviceid, sizeof(deviceid), "%02X:%02X:%02X:%02X:%02X:%02X",
+             (unsigned char) hw_addr[0], (unsigned char) hw_addr[1],
+             (unsigned char) hw_addr[2], (unsigned char) hw_addr[3],
+             (unsigned char) hw_addr[4], (unsigned char) hw_addr[5]);
+    uint64_t feat = g_dnssd ? dnssd_get_airplay_features(g_dnssd) : 0;
+    char features[40];
+    snprintf(features, sizeof(features), "0x%X,0x%X",
+             (uint32_t) (feat & 0xFFFFFFFF), (uint32_t) (feat >> 32));
+    // Stable pi UUID derived from the device id.
+    char pi[40];
+    snprintf(pi, sizeof(pi), "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+             (unsigned char) hw_addr[0], (unsigned char) hw_addr[1], (unsigned char) hw_addr[2],
+             (unsigned char) hw_addr[3], (unsigned char) hw_addr[4], (unsigned char) hw_addr[5],
+             0x41, 0x50, 0x6c, 0x61, (unsigned char) hw_addr[0], (unsigned char) hw_addr[1],
+             (unsigned char) hw_addr[2], (unsigned char) hw_addr[3], (unsigned char) hw_addr[4],
+             (unsigned char) hw_addr[5]);
+    const char *pk = (g_dnssd && g_dnssd->pk) ? g_dnssd->pk : "";
+
     jclass mapCls = env->FindClass("java/util/HashMap");
     jobject map = env->NewObject(mapCls, env->GetMethodID(mapCls, "<init>", "()V"));
+    jmethodID put = env->GetMethodID(mapCls, "put",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;");
+    auto putkv = [&](const char *k, const char *v) {
+        jstring jk = env->NewStringUTF(k);
+        jstring jv = env->NewStringUTF(v);
+        env->CallObjectMethod(map, put, jk, jv);
+        env->DeleteLocalRef(jk); env->DeleteLocalRef(jv);
+    };
+    putkv("deviceid", deviceid);
+    putkv("features", features);
+    putkv("flags", "0x4");
+    putkv("model", "AppleTV3,2");
+    putkv("srcvers", "220.68");
+    putkv("vv", "2");
+    putkv("pw", "false");
+    putkv("pi", pi);
+    putkv("pk", pk);
+    putkv("rsf", "0x0");
+    putkv("acl", "0");
     return map;
 }
 
