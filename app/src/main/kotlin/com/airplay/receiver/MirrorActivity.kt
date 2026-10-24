@@ -62,8 +62,9 @@ class MirrorActivity : Activity(), SurfaceHolder.Callback {
     }
 
     fun onVideoFrame(data: ByteArray, ptsUs: Long, isIdr: Boolean) {
-        val annexB = toAnnexB(data)
-        video.submitFrame(annexB, ptsUs, isIdr, isConfig = false)
+        // The native core already delivers Annex-B byte-stream (start codes) with
+        // SPS/PPS prepended inline (see UxPlay raop_rtp_mirror). Feed it verbatim.
+        video.submitFrame(java.nio.ByteBuffer.wrap(data), ptsUs, isIdr, isConfig = false)
     }
 
     fun onAudioConfig(format: Int, sampleRate: Int, channels: Int, csd0: ByteArray?) =

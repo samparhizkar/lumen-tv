@@ -68,6 +68,7 @@ int cb_video_set_codec_and_size(void *cls, video_codec_t codec,
                                 unsigned short ws, unsigned short hs,
                                 unsigned short xo, unsigned short yo,
                                 unsigned short w, unsigned short h) {
+    LOG("video codec=%d source=%ux%u display=%ux%u", (int) codec, ws, hs, w, h);
     Env e; if (!e.env || !g_self) return 0;
     jint c = (codec == VIDEO_CODEC_H265) ? 1 : 0;
     // csd (SPS/PPS/VPS) arrives inline with the first frames for AirPlay mirror;
@@ -80,6 +81,19 @@ int cb_video_set_codec_and_size(void *cls, video_codec_t codec,
 
 void cb_video_process(void *cls, raop_ntp_t *ntp, video_decode_struct *data) {
     Env e; if (!e.env || !g_self || !data) return;
+    // Measure incoming frame rate: log fps over each ~2s window.
+    static int frames = 0;
+    static int64_t window_start = 0;
+    struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
+    int64_t now_ms = (int64_t) ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+    if (window_start == 0) window_start = now_ms;
+    frames++;
+    if (now_ms - window_start >= 2000) {
+        LOG("incoming video: %.1f fps (%d frames / %lld ms), last AU %d bytes",
+            frames * 1000.0 / (now_ms - window_start), frames,
+            (long long) (now_ms - window_start), data->data_len);
+        frames = 0; window_start = now_ms;
+    }
     jbyteArray buf = toBytes(e.env, data->data, data->data_len);
     // ntp_time_local is in NTP units (µs since epoch base); pass as pts.
     e.env->CallVoidMethod(g_self, m_videoFrame, buf,
@@ -98,6 +112,35 @@ void cb_audio_process(void *cls, raop_ntp_t *ntp, audio_decode_struct *data) {
     e.env->CallVoidMethod(g_self, m_audioPacket, buf, (jlong) data->ntp_time_local);
     e.env->DeleteLocalRef(buf);
 }
+
+// --- no-op stubs for the remaining callbacks ---------------------------------
+// The core calls several of these without null-checking (e.g. /info calls
+// audio_set_client_volume), so every pointer must be non-null.
+void st_void(void *cls) {}
+void st_video_reset(void *cls, reset_type_t r) {}
+void st_conn_reset(void *cls, int reason) {}
+double st_audio_client_volume(void *cls) { return 0.0; }
+void st_audio_set_volume(void *cls, float v) {}
+void st_audio_set_metadata(void *cls, const void *b, int l) {}
+void st_audio_set_coverart(void *cls, const void *b, int l) {}
+void st_audio_remote_control_id(void *cls, const char *d, const char *a) {}
+void st_audio_set_progress(void *cls, uint32_t *s, uint32_t *c, uint32_t *e) {}
+void st_mirror_video_running(void *cls, bool r) {}
+void st_report_client_request(void *cls, char *deviceid, char *model, char *name, bool *admit) {
+    if (admit) *admit = true;   // accept every sender for now
+}
+void st_display_pin(void *cls, char *pin) {}
+void st_register_client(void *cls, const char *id, const char *pk, const char *name) {}
+bool st_check_register(void *cls, const char *pk) { return false; }   // not yet paired
+const char *st_passwd(void *cls, int *len) { if (len) *len = 0; return nullptr; }
+void st_export_dacp(void *cls, const char *ar, const char *id) {}
+void st_on_video_play(void *cls, const char *loc, float pos) {}
+void st_on_video_scrub(void *cls, float pos) {}
+void st_on_video_rate(void *cls, float rate) {}
+void st_on_video_stop(void *cls) {}
+void st_on_video_acquire(void *cls, playback_info_t *pi) {}
+float st_on_video_playlist_remove(void *cls) { return 0.0f; }
+void st_get_custom_profile(void *cls, const char **p) { if (p) *p = nullptr; }
 
 } // namespace
 
@@ -122,12 +165,42 @@ Java_com_airplay_receiver_net_AirPlayCore_nativeStart(JNIEnv *env, jobject thiz,
 
     raop_callbacks_t cbs;
     memset(&cbs, 0, sizeof(cbs));
+    // Real callbacks we implement.
     cbs.conn_init = cb_conn_init;
     cbs.conn_destroy = cb_conn_destroy;
     cbs.video_set_codec_and_size = cb_video_set_codec_and_size;
     cbs.video_process = cb_video_process;
     cbs.audio_get_format = cb_audio_get_format;
     cbs.audio_process = cb_audio_process;
+    // No-op stubs so the core never calls a null pointer.
+    cbs.video_pause = st_void;
+    cbs.video_resume = st_void;
+    cbs.conn_feedback = st_void;
+    cbs.conn_reset = st_conn_reset;
+    cbs.video_reset = st_video_reset;
+    cbs.audio_flush = st_void;
+    cbs.video_flush = st_void;
+    cbs.audio_set_client_volume = st_audio_client_volume;
+    cbs.audio_set_volume = st_audio_set_volume;
+    cbs.audio_set_metadata = st_audio_set_metadata;
+    cbs.audio_set_coverart = st_audio_set_coverart;
+    cbs.audio_stop_coverart_rendering = st_void;
+    cbs.audio_remote_control_id = st_audio_remote_control_id;
+    cbs.audio_set_progress = st_audio_set_progress;
+    cbs.mirror_video_running = st_mirror_video_running;
+    cbs.report_client_request = st_report_client_request;
+    cbs.display_pin = st_display_pin;
+    cbs.register_client = st_register_client;
+    cbs.check_register = st_check_register;
+    cbs.passwd = st_passwd;
+    cbs.export_dacp = st_export_dacp;
+    cbs.on_video_play = st_on_video_play;
+    cbs.on_video_scrub = st_on_video_scrub;
+    cbs.on_video_rate = st_on_video_rate;
+    cbs.on_video_stop = st_on_video_stop;
+    cbs.on_video_acquire_playback_info = st_on_video_acquire;
+    cbs.on_video_playlist_remove = st_on_video_playlist_remove;
+    cbs.get_custom_profile = st_get_custom_profile;
 
     g_raop = raop_init(&cbs);
     if (!g_raop) { LOG("raop_init failed"); return nullptr; }
@@ -135,6 +208,13 @@ Java_com_airplay_receiver_net_AirPlayCore_nativeStart(JNIEnv *env, jobject thiz,
     // The core asserts a log callback is set before it logs (httpd_start logs).
     raop_set_log_callback(g_raop, cb_log, nullptr);
     raop_set_log_level(g_raop, 5 /*LOGGER_INFO*/);
+
+    // Advertise 1080p60 to the sender. The core defaults maxFPS=30, which makes
+    // macOS send only 30fps; bump it and pin the display size to 1080p.
+    raop_set_plist(g_raop, "width", 1920);
+    raop_set_plist(g_raop, "height", 1080);
+    raop_set_plist(g_raop, "refreshRate", 60);
+    raop_set_plist(g_raop, "maxFPS", 60);
 
     const char *dev = env->GetStringUTFChars(deviceName, nullptr);
     // keyfile "" (not NULL): the core derives a stable ed25519 identity from the

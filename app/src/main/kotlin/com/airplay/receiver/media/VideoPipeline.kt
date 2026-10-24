@@ -105,22 +105,11 @@ class VideoPipeline(
         }
 
         override fun onOutputBufferAvailable(mc: MediaCodec, index: Int, info: MediaCodec.BufferInfo) {
-            // Pacing rules transcribed from the Sony output stage, but with a
-            // correct nanosecond domain for scheduled release.
-            val nowUs = clock.nowUs()
-            val aheadUs = info.presentationTimeUs - nowUs
-            val isFirstAfterIdr = firstAfterIdr && info.presentationTimeUs == lastIdrPtsUs
-            when {
-                aheadUs > 1_000_000L -> {
-                    // Future frame: schedule precisely to the display clock (ns).
-                    mc.releaseOutputBuffer(index, clock.ptsUsToSystemNanos(info.presentationTimeUs))
-                }
-                aheadUs > -1_000_000L || isFirstAfterIdr -> {
-                    if (isFirstAfterIdr) firstAfterIdr = false
-                    mc.releaseOutputBuffer(index, true)      // show now
-                }
-                else -> mc.releaseOutputBuffer(index, false) // >1s late: drop
-            }
+            // TODO: reinstate clock-paced release (releaseOutputBufferAtTime) once
+            // the NTP->local clock mapping is calibrated. For bring-up, render each
+            // decoded frame immediately so latency is low and nothing blacks out on
+            // an uncalibrated timestamp.
+            mc.releaseOutputBuffer(index, true)
         }
 
         override fun onOutputFormatChanged(mc: MediaCodec, format: MediaFormat) {
