@@ -9,6 +9,9 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
+import com.airplay.receiver.HomeActivity
+import com.airplay.receiver.Prefs
+import com.airplay.receiver.ReceiverState
 import com.airplay.receiver.net.AirPlayCore
 import com.airplay.receiver.net.BonjourAdvertiser
 
@@ -44,14 +47,22 @@ class AirPlayService : Service() {
                 MirrorActivityBridge.onAudioPacket(data, ptsUs)
             override fun onTimingSync(streamPtsUs: Long, localPlaybackUs: Long) =
                 MirrorActivityBridge.onTimingSync(streamPtsUs, localPlaybackUs)
-            override fun onSessionStart() = MirrorActivityBridge.launch(this@AirPlayService)
-            override fun onSessionEnd() = MirrorActivityBridge.finish()
+            override fun onSessionStart() {
+                ReceiverState.setConnected("AirPlay", ReceiverState.Session.MIRRORING)
+                MirrorActivityBridge.launch(this@AirPlayService)
+            }
+            override fun onSessionEnd() {
+                ReceiverState.setReady(Prefs(this@AirPlayService).deviceName, HomeActivity.localIp())
+                MirrorActivityBridge.finish()
+            }
         })
 
-        val txt = runCatching { c.nativeStart(deviceName(), PORT) }.getOrDefault(defaultTxt())
-        advertiser.register(deviceName(), PORT, txt)
+        val name = Prefs(this).deviceName
+        val txt = runCatching { c.nativeStart(name, PORT) }.getOrDefault(defaultTxt())
+        advertiser.register(name, PORT, txt)
         core = c
-        Log.i(TAG, "AirPlay service up on :$PORT as '${deviceName()}'")
+        ReceiverState.setReady(name, HomeActivity.localIp())
+        Log.i(TAG, "AirPlay service up on :$PORT as '$name'")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int) = START_STICKY
@@ -63,14 +74,6 @@ class AirPlayService : Service() {
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
-
-    private fun deviceName(): String {
-        // Avoid the platform's generic "Android TV" instance name, which already
-        // owns an _airplay advert and causes an mDNS name conflict. Prefer the
-        // user's room/device name only if they renamed it; else a distinct brand.
-        val sys = android.provider.Settings.Global.getString(contentResolver, "device_name")
-        return if (sys.isNullOrBlank() || sys == "Android TV") "Homatics AirPlay" else "$sys (AirPlay)"
-    }
 
     private fun defaultTxt(): Map<String, String> = mapOf(
         "srcvers" to "377.25.05",
