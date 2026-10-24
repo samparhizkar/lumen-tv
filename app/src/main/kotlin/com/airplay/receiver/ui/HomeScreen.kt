@@ -1,23 +1,29 @@
 package com.airplay.receiver.ui
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.*
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.tv.material3.Button
 import androidx.tv.material3.Text
 import com.airplay.receiver.ReceiverState
 
@@ -26,129 +32,283 @@ fun HomeScreen(
     status: ReceiverState.Status,
     onOpenSettings: () -> Unit,
 ) {
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(Color(0xFF0E141C), Brand.Bg))),
-        contentAlignment = Alignment.Center,
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            val connected = status is ReceiverState.Status.Connected
-            AirPlayGlyph(active = status is ReceiverState.Status.Ready, connected = connected)
+    val settingsFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { settingsFocus.requestFocus() } }
 
-            Spacer(Modifier.height(36.dp))
+    ScreenBackground {
+        val connected = status is ReceiverState.Status.Connected
+        val ready = status is ReceiverState.Status.Ready
+        val error = status is ReceiverState.Status.Error
+
+        // Wordmark pinned to the top-left so it never steals hero vertical space.
+        Row(
+            Modifier.align(Alignment.TopStart).padding(start = 72.dp, top = 48.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Beam", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Brand.Text, letterSpacing = 0.5.sp)
+            Spacer(Modifier.width(12.dp))
+            Text("Beam your screen to any TV", fontSize = 15.sp, color = Brand.TextMuted)
+        }
+
+        Column(
+            Modifier
+                .fillMaxSize()
+                .padding(horizontal = 80.dp, vertical = 36.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            AirPlayGlyph(active = ready, connected = connected, error = error)
+
+            Spacer(Modifier.height(18.dp))
             Text(
-                text = deviceName(status),
-                fontSize = 34.sp,
-                fontWeight = FontWeight.SemiBold,
+                text = headline(status),
+                fontSize = 40.sp,
+                fontWeight = FontWeight.Bold,
                 color = Brand.Text,
+                letterSpacing = (-0.5).sp,
             )
             Spacer(Modifier.height(10.dp))
             Text(
                 text = statusLine(status),
-                fontSize = 17.sp,
-                color = if (connected) Brand.Good else Brand.TextDim,
+                fontSize = 19.sp,
+                fontWeight = FontWeight.Medium,
+                color = when {
+                    connected -> Brand.Good
+                    error -> Brand.Danger
+                    else -> Brand.TextDim
+                },
             )
 
-            Spacer(Modifier.height(40.dp))
-            CapabilityChips()
+            Spacer(Modifier.height(26.dp))
 
-            Spacer(Modifier.height(40.dp))
-            Button(onClick = onOpenSettings) { Text("⚙  Settings") }
+            AnimatedContent(
+                targetState = statusKind(status),
+                transitionSpec = { fadeIn(tween(350)) togetherWith fadeOut(tween(200)) },
+                label = "hero",
+            ) { kind ->
+                when (kind) {
+                    Kind.READY -> InstructionCard(deviceName = (status as? ReceiverState.Status.Ready)?.deviceName ?: "this TV")
+                    Kind.CONNECTED -> ConnectedCard(status as ReceiverState.Status.Connected)
+                    Kind.ERROR -> MessageCard((status as? ReceiverState.Status.Error)?.message ?: "Something went wrong", danger = true)
+                    Kind.STARTING -> MessageCard("Getting ready to receive…", danger = false)
+                }
+            }
+
+            Spacer(Modifier.height(26.dp))
+
+            PillButton(
+                label = "Settings",
+                leading = "⚙",
+                onClick = onOpenSettings,
+                modifier = Modifier.focusRequester(settingsFocus),
+            )
+        }
+    }
+}
+
+private enum class Kind { STARTING, READY, CONNECTED, ERROR }
+
+private fun statusKind(s: ReceiverState.Status) = when (s) {
+    ReceiverState.Status.Starting -> Kind.STARTING
+    is ReceiverState.Status.Ready -> Kind.READY
+    is ReceiverState.Status.Connected -> Kind.CONNECTED
+    is ReceiverState.Status.Error -> Kind.ERROR
+}
+
+/** "How to connect" — a compact, inviting, non-technical three-step strip. */
+@Composable
+private fun InstructionCard(deviceName: String) {
+    Column(
+        Modifier
+            .widthIn(max = 900.dp)
+            .clip(Shapes.Card)
+            .background(Brand.Surface.copy(alpha = 0.72f))
+            .padding(horizontal = 40.dp, vertical = 26.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            "Mirror from your iPhone, iPad, or Mac",
+            fontSize = 20.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Brand.Text,
+        )
+        Spacer(Modifier.height(22.dp))
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Step(Modifier.weight(1f), 1, "Open", "Control Center")
+            Step(Modifier.weight(1f), 2, "Tap", "Screen Mirroring")
+            Step(Modifier.weight(1f), 3, "Choose", deviceName)
         }
     }
 }
 
 @Composable
-private fun CapabilityChips() {
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Chip("HEVC · 4K60")
-        Chip("H.264 · 1080p60")
-        Chip("ALAC / AAC")
+private fun Step(modifier: Modifier, number: Int, action: String, target: String) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            Modifier.size(36.dp).clip(CircleShape).background(Brand.AccentSoft),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("$number", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Brand.Accent)
+        }
+        Spacer(Modifier.width(14.dp))
+        Column {
+            Text(action, fontSize = 14.sp, color = Brand.TextDim)
+            Text(target, fontSize = 17.sp, color = Brand.Text, fontWeight = FontWeight.SemiBold, maxLines = 1)
+        }
     }
 }
 
 @Composable
-private fun Chip(label: String) {
+private fun ConnectedCard(s: ReceiverState.Status.Connected) {
+    val what = when (s.what) {
+        ReceiverState.Session.MIRRORING -> "is mirroring to this TV"
+        ReceiverState.Session.AUDIO -> "is playing audio on this TV"
+    }
+    Row(
+        Modifier
+            .widthIn(max = 640.dp)
+            .clip(Shapes.Card)
+            .background(Brand.GoodSoft)
+            .padding(horizontal = 36.dp, vertical = 26.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier.size(42.dp).clip(CircleShape).background(Brand.Good),
+            contentAlignment = Alignment.Center,
+        ) { Text("✓", fontSize = 22.sp, color = Color.White, fontWeight = FontWeight.Bold) }
+        Spacer(Modifier.width(20.dp))
+        Column {
+            Text(s.sender, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = Brand.Text)
+            Text(what, fontSize = 16.sp, color = Brand.TextDim)
+        }
+    }
+}
+
+@Composable
+private fun MessageCard(message: String, danger: Boolean) {
     Box(
         Modifier
-            .clip(RoundedCornerShape(10.dp))
-            .background(Brand.BgElevated)
-            .padding(horizontal = 16.dp, vertical = 9.dp)
-    ) { Text(label, fontSize = 14.sp, color = Brand.TextDim) }
+            .widthIn(max = 640.dp)
+            .clip(Shapes.Card)
+            .background(if (danger) Color(0x33FF453A) else Brand.Surface.copy(alpha = 0.6f))
+            .padding(horizontal = 36.dp, vertical = 24.dp),
+    ) {
+        Text(
+            message,
+            fontSize = 18.sp,
+            color = if (danger) Brand.Danger else Brand.TextDim,
+            fontWeight = FontWeight.Medium,
+        )
+    }
 }
 
 /**
- * The AirPlay mark (a screen with an upward triangle) drawn with Canvas, with
- * pulsing rings while advertising and a steady green glow while connected.
+ * The AirPlay mark — a rounded screen with an upward triangle — drawn on a
+ * Canvas. Soft pulsing rings and a glow while advertising; a steady green mark
+ * while connected. Stroke widths scale with the canvas so it stays crisp on a
+ * big panel.
  */
 @Composable
-private fun AirPlayGlyph(active: Boolean, connected: Boolean) {
+private fun AirPlayGlyph(active: Boolean, connected: Boolean, error: Boolean) {
     val infinite = rememberInfiniteTransition(label = "pulse")
     val pulse by infinite.animateFloat(
         initialValue = 0f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1800, easing = LinearEasing), RepeatMode.Restart),
+        animationSpec = infiniteRepeatable(tween(2600, easing = LinearEasing), RepeatMode.Restart),
         label = "p",
     )
-    val tint = if (connected) Brand.Good else Brand.Accent
+    val breathe by infinite.animateFloat(
+        initialValue = 0.85f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(1800, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "b",
+    )
+    val tint = when {
+        error -> Brand.Danger
+        connected -> Brand.Good
+        else -> Brand.Accent
+    }
 
-    Canvas(Modifier.size(180.dp)) {
-        val cx = size.width / 2f
-        val cy = size.height / 2f
-
-        if (active || connected) {
-            val maxR = size.minDimension / 2f
-            val n = 3
-            for (i in 0 until n) {
-                val phase = ((pulse + i.toFloat() / n) % 1f)
-                val r = maxR * (0.45f + 0.55f * phase)
-                drawCircle(
-                    color = tint.copy(alpha = (1f - phase) * 0.35f),
-                    radius = r, center = Offset(cx, cy),
-                    style = Stroke(width = 3f),
-                )
-            }
-        }
-
-        // Screen rectangle
-        val w = size.width * 0.42f
-        val h = size.height * 0.30f
-        val left = cx - w / 2f
-        val top = cy - h / 2f - size.height * 0.06f
-        drawRoundRect(
-            color = tint,
-            topLeft = Offset(left, top),
-            size = androidx.compose.ui.geometry.Size(w, h),
-            cornerRadius = androidx.compose.ui.geometry.CornerRadius(10f, 10f),
-            style = Stroke(width = 7f),
+    Box(Modifier.size(172.dp), contentAlignment = Alignment.Center) {
+        // Soft ambient bloom behind the mark (radial gradient — no hard edges,
+        // matched to the container so it never adds to the layout footprint).
+        Box(
+            Modifier
+                .matchParentSize()
+                .background(
+                    androidx.compose.ui.graphics.Brush.radialGradient(
+                        colors = listOf(
+                            tint.copy(alpha = if (active || connected) 0.32f else 0.16f),
+                            Color.Transparent,
+                        ),
+                    )
+                ),
         )
-        // Upward triangle
-        val tw = size.width * 0.26f
-        val baseY = top + h + size.height * 0.16f
-        val apexY = top + h * 0.55f
-        val path = Path().apply {
-            moveTo(cx - tw / 2f, baseY)
-            lineTo(cx + tw / 2f, baseY)
-            lineTo(cx, apexY)
-            close()
+        Canvas(Modifier.size(148.dp)) {
+            val cx = size.width / 2f
+            val cy = size.height / 2f
+            val unit = size.minDimension
+
+            if (active) {
+                val maxR = unit / 2f
+                for (i in 0 until 3) {
+                    val phase = (pulse + i / 3f) % 1f
+                    drawCircle(
+                        color = tint.copy(alpha = (1f - phase) * 0.30f),
+                        radius = maxR * (0.4f + 0.6f * phase),
+                        center = Offset(cx, cy),
+                        style = Stroke(width = unit * 0.012f),
+                    )
+                }
+            }
+
+            val scale = if (connected) 1f else if (active) breathe else 0.92f
+
+            // Screen rectangle
+            val w = unit * 0.44f * scale
+            val h = unit * 0.32f * scale
+            val left = cx - w / 2f
+            val top = cy - h / 2f - unit * 0.07f
+            val r = unit * 0.035f
+            drawRoundRect(
+                color = tint,
+                topLeft = Offset(left, top),
+                size = Size(w, h),
+                cornerRadius = CornerRadius(r, r),
+                style = Stroke(width = unit * 0.038f),
+            )
+            // Upward triangle
+            val tw = unit * 0.28f * scale
+            val baseY = top + h + unit * 0.17f
+            val apexY = top + h * 0.52f
+            drawPath(
+                Path().apply {
+                    moveTo(cx - tw / 2f, baseY)
+                    lineTo(cx + tw / 2f, baseY)
+                    lineTo(cx, apexY)
+                    close()
+                },
+                color = tint,
+            )
         }
-        drawPath(path, color = tint)
     }
 }
 
-private fun deviceName(s: ReceiverState.Status): String = when (s) {
+private fun headline(s: ReceiverState.Status): String = when (s) {
+    ReceiverState.Status.Starting -> "Beam"
     is ReceiverState.Status.Ready -> s.deviceName
     is ReceiverState.Status.Connected -> s.sender
-    else -> "AirPlay Receiver"
+    is ReceiverState.Status.Error -> "Beam"
 }
 
 private fun statusLine(s: ReceiverState.Status): String = when (s) {
-    ReceiverState.Status.Starting -> "Starting…"
+    ReceiverState.Status.Starting -> "Starting up…"
     is ReceiverState.Status.Ready ->
-        "Ready · select on your iPhone or Mac" + (s.ip?.let { "   ·   $it" } ?: "")
+        "Ready to connect" + (s.ip?.let { "  ·  $it" } ?: "")
     is ReceiverState.Status.Connected -> when (s.what) {
-        ReceiverState.Session.MIRRORING -> "Mirroring"
+        ReceiverState.Session.MIRRORING -> "Mirroring now"
         ReceiverState.Session.AUDIO -> "Playing audio"
     }
-    is ReceiverState.Status.Error -> s.message
+    is ReceiverState.Status.Error -> "Needs attention"
 }

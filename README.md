@@ -1,8 +1,17 @@
-# Homatics AirPlay Receiver
+# Beam
 
-An AirPlay receiver for the **Homatics Dongle R 4K** (Amlogic S905Y4, Android 14),
-built to match or beat the AirPlay experience of a Sony BRAVIA — which runs
-Apple's licensed AirPlay SDK — using only standard, unprivileged Android APIs.
+**Beam your screen to any TV.** An AirPlay receiver for Android TV that turns a
+cheap streaming dongle into a wireless display for iPhone, iPad, and Mac.
+
+First target: the **Homatics Dongle R 4K** (Amlogic S905Y4, Android 14). Built to
+match or beat the AirPlay experience of a Sony BRAVIA — which runs Apple's
+licensed AirPlay SDK — using only standard, unprivileged Android APIs, so it can
+run on an ordinary (unrooted) device.
+
+> Beam is an independent project, not affiliated with or endorsed by Apple.
+> "AirPlay" is a trademark of Apple Inc., used only to describe interoperability.
+> Beam is licensed **GPLv3** (it links the GPLv3 UxPlay core); see `LICENSE` and
+> `THIRD-PARTY-NOTICES.md`.
 
 This project came out of reverse-engineering the Sony's `libairplay.so` and the
 dongle's own capabilities. The findings that drive the design are in `docs/`:

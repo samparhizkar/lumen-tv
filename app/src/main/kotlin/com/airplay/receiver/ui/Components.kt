@@ -1,0 +1,251 @@
+package com.airplay.receiver.ui
+
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.tv.material3.Border
+import androidx.tv.material3.ClickableSurfaceDefaults
+import androidx.tv.material3.Glow
+import androidx.tv.material3.Surface
+import androidx.tv.material3.Text
+
+/** Uppercase, tracked section label — the quiet header above a group of rows. */
+@Composable
+fun SectionHeader(title: String, modifier: Modifier = Modifier) {
+    Text(
+        text = title.uppercase(),
+        fontSize = 13.sp,
+        fontWeight = FontWeight.SemiBold,
+        letterSpacing = 1.6.sp,
+        color = Brand.TextMuted,
+        modifier = modifier.padding(start = 6.dp, bottom = 12.dp),
+    )
+}
+
+/**
+ * A focusable settings row backed by a TV [Surface]. It is the single focus
+ * target for the row (so D-pad up/down steps cleanly from one row to the next),
+ * and on focus it lifts, brightens, scales slightly, picks up an accent hairline
+ * and a soft glow — the Apple "spotlight" feel, tuned to stay calm.
+ */
+@Composable
+fun FocusableRow(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        modifier = modifier.fillMaxWidth(),
+        shape = ClickableSurfaceDefaults.shape(shape = Shapes.Row),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = Brand.Surface,
+            contentColor = Brand.Text,
+            focusedContainerColor = Brand.SurfaceFocused,
+            focusedContentColor = Brand.Text,
+            pressedContainerColor = Brand.SurfaceFocused,
+            pressedContentColor = Brand.Text,
+        ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.015f),
+        border = ClickableSurfaceDefaults.border(
+            focusedBorder = Border(
+                border = BorderStroke(2.dp, Brand.Accent),
+                shape = Shapes.Row,
+            ),
+        ),
+        glow = ClickableSurfaceDefaults.glow(
+            focusedGlow = Glow(elevationColor = Color.Black, elevation = 14.dp),
+        ),
+    ) {
+        Box(Modifier.padding(horizontal = 24.dp, vertical = 20.dp)) { content() }
+    }
+}
+
+/** Title + subtitle on the left; a trailing control/value slot on the right. */
+@Composable
+private fun RowBody(
+    title: String,
+    subtitle: String?,
+    trailing: @Composable () -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, fontSize = 21.sp, fontWeight = FontWeight.Medium, color = Brand.Text)
+            if (subtitle != null) {
+                Spacer(Modifier.height(3.dp))
+                Text(subtitle, fontSize = 14.sp, color = Brand.TextDim)
+            }
+        }
+        Spacer(Modifier.width(20.dp))
+        trailing()
+    }
+}
+
+/** A row that opens something (e.g. the name editor). Shows a value + chevron. */
+@Composable
+fun ActionRow(
+    title: String,
+    subtitle: String?,
+    value: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    FocusableRow(onClick = onClick, modifier = modifier) {
+        RowBody(title, subtitle) {
+            Text(value, fontSize = 19.sp, color = Brand.TextDim)
+            Spacer(Modifier.width(14.dp))
+            Text("›", fontSize = 26.sp, color = Brand.TextMuted)
+        }
+    }
+}
+
+/** A row that toggles a boolean. The whole row is the focus/click target. */
+@Composable
+fun ToggleRow(
+    title: String,
+    subtitle: String?,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    FocusableRow(onClick = { onCheckedChange(!checked) }, modifier = modifier) {
+        RowBody(title, subtitle) { SwitchVisual(checked) }
+    }
+}
+
+/**
+ * A non-interactive switch indicator. Drawn ourselves (rather than the tv
+ * Switch) so the row stays the one and only focus target — the thumb slides and
+ * the track crossfades to accent, matching the iOS control.
+ */
+@Composable
+fun SwitchVisual(on: Boolean) {
+    val track by animateColorAsState(
+        if (on) Brand.Good else Brand.Hairline, tween(220), label = "track",
+    )
+    val thumbOffset by animateDpAsState(if (on) 22.dp else 2.dp, tween(220), label = "thumb")
+    Box(
+        Modifier
+            .width(52.dp)
+            .height(30.dp)
+            .clip(CircleShape)
+            .background(track),
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        Box(
+            Modifier
+                .padding(start = thumbOffset)
+                .size(26.dp)
+                .clip(CircleShape)
+                .background(Color.White),
+        )
+    }
+}
+
+/** A static, non-focusable information row for the About group. */
+@Composable
+fun InfoRow(title: String, value: String, modifier: Modifier = Modifier) {
+    Box(
+        modifier
+            .fillMaxWidth()
+            .clip(Shapes.Row)
+            .background(Brand.Surface)
+            .padding(horizontal = 24.dp, vertical = 18.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(title, fontSize = 19.sp, color = Brand.TextDim, modifier = Modifier.width(200.dp))
+            Text(value, fontSize = 19.sp, color = Brand.Text, modifier = Modifier.weight(1f))
+        }
+    }
+}
+
+/**
+ * A primary pill button with clear TV focus (accent fill + lift) used for the
+ * main call to action on each screen.
+ */
+@Composable
+fun PillButton(
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    leading: String? = null,
+    accent: Boolean = false,
+) {
+    Surface(
+        onClick = onClick,
+        modifier = modifier,
+        shape = ClickableSurfaceDefaults.shape(shape = Shapes.Button),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = if (accent) Brand.Accent else Brand.Surface,
+            contentColor = if (accent) Brand.OnAccent else Brand.Text,
+            focusedContainerColor = if (accent) Brand.Accent else Brand.SurfaceFocused,
+            focusedContentColor = if (accent) Brand.OnAccent else Brand.Text,
+        ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
+        border = ClickableSurfaceDefaults.border(
+            focusedBorder = Border(
+                border = BorderStroke(2.dp, if (accent) Brand.OnAccent else Brand.Accent),
+                shape = Shapes.Button,
+            ),
+        ),
+        glow = ClickableSurfaceDefaults.glow(
+            focusedGlow = Glow(
+                elevationColor = if (accent) Brand.Accent else Color.Black,
+                elevation = 16.dp,
+            ),
+        ),
+    ) {
+        Row(
+            Modifier.padding(horizontal = 30.dp, vertical = 15.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+        ) {
+            if (leading != null) {
+                Text(leading, fontSize = 20.sp)
+                Spacer(Modifier.width(10.dp))
+            }
+            Text(label, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+        }
+    }
+}
+
+/** Small static capability chip, e.g. "HEVC · 4K60". */
+@Composable
+fun Chip(label: String) {
+    Box(
+        Modifier
+            .clip(Shapes.Chip)
+            .background(Brand.Surface)
+            .border(BorderStroke(1.dp, Brand.Hairline), Shapes.Chip)
+            .padding(horizontal = 18.dp, vertical = 10.dp),
+    ) {
+        Text(label, fontSize = 15.sp, color = Brand.TextDim, fontWeight = FontWeight.Medium)
+    }
+}
