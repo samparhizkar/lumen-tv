@@ -19,16 +19,38 @@ class BonjourAdvertiser(context: Context) {
     private val nsd = context.getSystemService(Context.NSD_SERVICE) as NsdManager
     private var listener: NsdManager.RegistrationListener? = null
 
+    private var baseName = "AirPlay"
+    private var port = 0
+    private var txt: Map<String, String> = emptyMap()
+
     fun register(deviceName: String, port: Int, txt: Map<String, String>) {
+        this.baseName = deviceName
+        this.port = port
+        this.txt = txt
+        tryRegister(deviceName, attempt = 0)
+    }
+
+    /**
+     * Android 14's MdnsAdvertiser throws NameConflictException instead of
+     * auto-renaming, so a generic instance name (e.g. "Android TV", already used
+     * by the platform's own Cast advert) fails. We retry with a numeric suffix,
+     * the same recovery the classic responder did for us.
+     */
+    private fun tryRegister(name: String, attempt: Int) {
         val info = NsdServiceInfo().apply {
-            serviceName = deviceName
+            serviceName = name
             serviceType = "_airplay._tcp."
-            setPort(port)
+            setPort(this@BonjourAdvertiser.port)
             txt.forEach { (k, v) -> setAttribute(k, v) }
         }
         val l = object : NsdManager.RegistrationListener {
-            override fun onServiceRegistered(s: NsdServiceInfo) { Log.i(TAG, "registered ${s.serviceName}") }
-            override fun onRegistrationFailed(s: NsdServiceInfo, code: Int) { Log.e(TAG, "register failed $code") }
+            override fun onServiceRegistered(s: NsdServiceInfo) { Log.i(TAG, "registered '${s.serviceName}'") }
+            override fun onRegistrationFailed(s: NsdServiceInfo, code: Int) {
+                Log.e(TAG, "register failed code=$code name='$name' attempt=$attempt")
+                if (code == NsdManager.FAILURE_INTERNAL_ERROR && attempt < 5) {
+                    tryRegister("$baseName (${attempt + 2})", attempt + 1)
+                }
+            }
             override fun onServiceUnregistered(s: NsdServiceInfo) { Log.i(TAG, "unregistered") }
             override fun onUnregistrationFailed(s: NsdServiceInfo, code: Int) { Log.e(TAG, "unregister failed $code") }
         }

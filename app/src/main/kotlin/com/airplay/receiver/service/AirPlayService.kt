@@ -64,8 +64,13 @@ class AirPlayService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    private fun deviceName(): String =
-        android.provider.Settings.Global.getString(contentResolver, "device_name") ?: "Homatics AirPlay"
+    private fun deviceName(): String {
+        // Avoid the platform's generic "Android TV" instance name, which already
+        // owns an _airplay advert and causes an mDNS name conflict. Prefer the
+        // user's room/device name only if they renamed it; else a distinct brand.
+        val sys = android.provider.Settings.Global.getString(contentResolver, "device_name")
+        return if (sys.isNullOrBlank() || sys == "Android TV") "Homatics AirPlay" else "$sys (AirPlay)"
+    }
 
     private fun defaultTxt(): Map<String, String> = mapOf(
         "srcvers" to "377.25.05",
