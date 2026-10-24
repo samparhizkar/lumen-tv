@@ -23,9 +23,13 @@ android {
         }
     }
 
-    // The reused protocol/crypto core (RTSP, pairing, FairPlay, RTP decrypt) is
-    // built here once it is vendored into native-core/. Commented until present.
-    // externalNativeBuild { cmake { path = file("../native-core/CMakeLists.txt") } }
+    // Reused protocol/crypto core (RTSP, pairing, FairPlay, RTP decrypt).
+    externalNativeBuild {
+        cmake {
+            path = file("../native-core/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
 
     buildTypes {
         release {

@@ -35,6 +35,24 @@ class AirPlayCore(private val cb: Callbacks) {
     external fun nativeStart(deviceName: String, port: Int): Map<String, String>
     external fun nativeStop()
 
+    // --- forwarding targets called from native (JNI) ---
+    // Names/signatures must match the GetMethodID calls in airplaycore.cpp.
+    @Suppress("unused")
+    private fun nvVideoConfig(codec: Int, width: Int, height: Int, csd0: ByteArray, csd1: ByteArray?) =
+        cb.onVideoConfig(codec, width, height, csd0, csd1)
+    @Suppress("unused")
+    private fun nvVideoFrame(data: ByteArray, ptsUs: Long, isIdr: Boolean) =
+        cb.onVideoFrame(data, ptsUs, isIdr)
+    @Suppress("unused")
+    private fun nvAudioConfig(format: Int, sampleRate: Int, channels: Int, csd0: ByteArray?) =
+        cb.onAudioConfig(format, sampleRate, channels, csd0)
+    @Suppress("unused")
+    private fun nvAudioPacket(data: ByteArray, ptsUs: Long) = cb.onAudioPacket(data, ptsUs)
+    @Suppress("unused")
+    private fun nvSessionStart() = cb.onSessionStart()
+    @Suppress("unused")
+    private fun nvSessionEnd() = cb.onSessionEnd()
+
     companion object {
         init {
             // Loaded once the core is vendored + CMake wired in app/build.gradle.kts.
