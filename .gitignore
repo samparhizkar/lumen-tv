@@ -1,0 +1,14 @@
+# Android / Gradle
+.gradle/
+build/
+local.properties
+*.iml
+.idea/
+.cxx/
+
+# Native core artifacts
+native-core/build/
+*.so
+
+# OS
+.DS_Store
