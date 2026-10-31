@@ -12,3 +12,8 @@ native-core/build/
 
 # OS
 .DS_Store
+
+# Release signing (kept out of git)
+keystore.properties
+*.jks
+*.keystore

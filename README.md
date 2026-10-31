@@ -13,6 +13,32 @@ run on an ordinary (unrooted) device.
 > Lumen is licensed **GPLv3** (it links the GPLv3 UxPlay core); see `LICENSE` and
 > `THIRD-PARTY-NOTICES.md`.
 
+## Install on your TV
+Lumen isn't on the Play Store yet; install the APK from
+[the latest release](https://github.com/samparhizkar/lumen-tv/releases/latest).
+
+**With the remote only** (Telly, Homatics, most Android TV / Google TV boxes):
+1. Install **Downloader** (by AFTVnews) from the Play Store on the TV.
+2. Allow Downloader to install apps: in the TV's Settings, find *Unknown
+   sources* or *Install unknown apps* (usually under Apps → Security &
+   restrictions, or Device Preferences → Security & restrictions) and turn it
+   on for Downloader.
+3. Open Downloader and enter
+   `github.com/samparhizkar/lumen-tv/releases/latest/download/Lumen.apk`,
+   then install when asked.
+4. Open Lumen, pick the room the TV is in, and allow it to appear over other
+   apps (so mirroring can start while you're watching something else).
+
+**With a computer:** `adb install Lumen.apk`.
+
+Then on an iPhone, iPad or Mac: Control Center → Screen Mirroring → your TV.
+For music from a Mac's Music app, pick "*your TV* Speaker".
+
+**Known limits:** apps with copy protection (Netflix, Disney+, …) usually
+mirror as a black screen; sending a video from an app's AirPlay button (rather
+than mirroring) isn't supported yet; tested on the Homatics Dongle R 4K (the
+dongle that ships with Telly), other boxes should work but are untested.
+
 This project came out of reverse-engineering the Sony's `libairplay.so` and the
 dongle's own capabilities. The findings that drive the design are in `docs/`:
 - [`docs/SONY-SPEC.md`](docs/SONY-SPEC.md) — the Sony's decompiled behavior
@@ -54,7 +80,8 @@ Working on the Homatics Dongle R 4K (tested with iPhone and Mac):
 - [ ] A/V sync and frame pacing against a calibrated clock (the core's NTP
       exchange never completes with macOS; pacing uses sender timestamps).
 - [ ] Real Wi-Fi MAC as the device id; persistent pairing key across renames.
-- [ ] Release signing and a public release.
+- [x] Release signing.
+- [ ] Public release / Play Store.
 
 ## Scope (unprivileged, by necessity)
 Classic AirPlay: screen mirroring + audio. **Not** AirPlay-2 buffered audio /
@@ -68,3 +95,7 @@ Build with JDK 17–21 (Android Studio's bundled JBR works):
 `./gradlew :app:assembleRelease`. Release builds are much smoother than debug
 builds on the dongle; after installing, `adb shell cmd package compile -m
 speed-profile -f io.github.samparhizkar.lumen` warms it up further.
+
+Release builds are signed with the key named in `keystore.properties` at the
+repo root (git-ignored: `storeFile`, `storePassword`, `keyAlias`,
+`keyPassword`); without that file they fall back to the debug key.

@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -12,8 +14,8 @@ android {
         applicationId = "io.github.samparhizkar.lumen"
         minSdk = 28          // Sony dongle is API 34; keep headroom for other boxes
         targetSdk = 34
-        versionCode = 4
-        versionName = "0.4.0"
+        versionCode = 5
+        versionName = "0.5.0"
         ndk {
             // Homatics dongle userspace is 32-bit only.
             abiFilters += listOf("armeabi-v7a")
@@ -31,15 +33,27 @@ android {
         }
     }
 
+    // Release key from keystore.properties at the repo root (git-ignored; see
+    // README). Without it, release builds fall back to the debug key so anyone
+    // can still build and sideload.
+    val keystoreProps = rootProject.file("keystore.properties").takeIf { it.exists() }
+        ?.let { f -> Properties().apply { f.inputStream().use { load(it) } } }
+    signingConfigs {
+        if (keystoreProps != null) create("release") {
+            storeFile = file(keystoreProps.getProperty("storeFile"))
+            storePassword = keystoreProps.getProperty("storePassword")
+            keyAlias = keystoreProps.getProperty("keyAlias")
+            keyPassword = keystoreProps.getProperty("keyPassword")
+        }
+    }
+
     buildTypes {
         release {
             // R8 + resource shrinking; Compose is several times slower without it.
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // Sideload-signed with the local debug key for now so it installs over
-            // dev builds; swap in a real upload key before any store release.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
     }
     buildFeatures { compose = true }
