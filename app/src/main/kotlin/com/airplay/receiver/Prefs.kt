@@ -20,6 +20,14 @@ class Prefs(context: Context) {
         get() = sp.getBoolean(KEY_PIN, false)
         set(v) = sp.edit().putBoolean(KEY_PIN, v).apply()
 
+    /**
+     * GPU-composited video (exact full-range colors) vs the hardware video plane.
+     * Off by default: low-end TV GPUs can't composite 1080p60 (the S905Y4 manages ~40 fps).
+     */
+    var accurateColors: Boolean
+        get() = sp.getBoolean(KEY_ACCURATE_COLORS, false)
+        set(v) = sp.edit().putBoolean(KEY_ACCURATE_COLORS, v).apply()
+
     private fun defaultName(): String {
         val sys = Settings.Global.getString(appContext.contentResolver, "device_name")
         return if (sys.isNullOrBlank() || sys == "Android TV") "Homatics AirPlay" else "$sys (AirPlay)"
@@ -29,5 +37,6 @@ class Prefs(context: Context) {
         private const val KEY_NAME = "device_name"
         private const val KEY_AUTOSTART = "autostart"
         private const val KEY_PIN = "require_pin"
+        private const val KEY_ACCURATE_COLORS = "accurate_colors"
     }
 }

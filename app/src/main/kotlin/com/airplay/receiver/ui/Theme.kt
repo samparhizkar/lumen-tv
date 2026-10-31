@@ -5,9 +5,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Canvas
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.darkColorScheme
@@ -78,18 +82,39 @@ fun AirPlayTheme(content: @Composable () -> Unit) {
 @Composable
 fun ScreenBackground(
     modifier: Modifier = Modifier,
+    /**
+     * The gradient wash + bloom is two full-screen shader passes, and this class
+     * of TV GPU repaints the whole window on every animation frame. Screens with
+     * frequent focus movement (Settings) use a flat fill instead.
+     */
+    ambient: Boolean = true,
     content: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit,
 ) {
+    if (!ambient) {
+        androidx.compose.foundation.layout.Box(
+            modifier.fillMaxSize().background(Brand.Bg),
+        ) { content() }
+        return
+    }
     androidx.compose.foundation.layout.Box(
         modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(Brand.BgTop, Brand.Bg)))
-            .background(
-                Brush.radialGradient(
+            // The wash + bloom are rendered once per size into a bitmap; each frame
+            // then paints one opaque texture instead of two gradient passes with a
+            // blend. Bloom sits top-centre, sized to the screen (960,120 r1100 at 1080p).
+            .drawWithCache {
+                val wash = Brush.verticalGradient(listOf(Brand.BgTop, Brand.Bg))
+                val bloom = Brush.radialGradient(
                     colors = listOf(Brand.AccentSoft, Color.Transparent),
-                    center = Offset(960f, 120f),
-                    radius = 1100f,
+                    center = Offset(size.width / 2f, size.height * 0.11f),
+                    radius = size.width * 0.57f,
                 )
-            ),
+                val backdrop = ImageBitmap(size.width.toInt().coerceAtLeast(1), size.height.toInt().coerceAtLeast(1))
+                CanvasDrawScope().draw(this, layoutDirection, Canvas(backdrop), size) {
+                    drawRect(wash)
+                    drawRect(bloom)
+                }
+                onDrawBehind { drawImage(backdrop) }
+            },
     ) { content() }
 }

@@ -29,7 +29,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Border
 import androidx.tv.material3.ClickableSurfaceDefaults
-import androidx.tv.material3.Glow
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 
@@ -49,8 +48,9 @@ fun SectionHeader(title: String, modifier: Modifier = Modifier) {
 /**
  * A focusable settings row backed by a TV [Surface]. It is the single focus
  * target for the row (so D-pad up/down steps cleanly from one row to the next),
- * and on focus it lifts, brightens, scales slightly, picks up an accent hairline
- * and a soft glow — the Apple "spotlight" feel, tuned to stay calm.
+ * and on focus it brightens, scales slightly and picks up an accent hairline —
+ * the Apple "spotlight" feel, tuned to stay calm. No glow: the blurred shadow
+ * cost a full blur pass per focused frame on the dongle's GPU.
  */
 @Composable
 fun FocusableRow(
@@ -76,9 +76,6 @@ fun FocusableRow(
                 border = BorderStroke(2.dp, Brand.Accent),
                 shape = Shapes.Row,
             ),
-        ),
-        glow = ClickableSurfaceDefaults.glow(
-            focusedGlow = Glow(elevationColor = Color.Black, elevation = 14.dp),
         ),
     ) {
         Box(Modifier.padding(horizontal = 24.dp, vertical = 20.dp)) { content() }
@@ -151,20 +148,20 @@ fun SwitchVisual(on: Boolean) {
         if (on) Brand.Good else Brand.Hairline, tween(220), label = "track",
     )
     val thumbOffset by animateDpAsState(if (on) 22.dp else 2.dp, tween(220), label = "thumb")
+    // Shape-aware fills rather than clip(): a clip costs an anti-aliased mask on
+    // every frame the row repaints.
     Box(
         Modifier
             .width(52.dp)
             .height(30.dp)
-            .clip(CircleShape)
-            .background(track),
+            .background(track, CircleShape),
         contentAlignment = Alignment.CenterStart,
     ) {
         Box(
             Modifier
                 .padding(start = thumbOffset)
                 .size(26.dp)
-                .clip(CircleShape)
-                .background(Color.White),
+                .background(Color.White, CircleShape),
         )
     }
 }
@@ -175,8 +172,7 @@ fun InfoRow(title: String, value: String, modifier: Modifier = Modifier) {
     Box(
         modifier
             .fillMaxWidth()
-            .clip(Shapes.Row)
-            .background(Brand.Surface)
+            .background(Brand.Surface, Shapes.Row)
             .padding(horizontal = 24.dp, vertical = 18.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -215,12 +211,6 @@ fun PillButton(
                 shape = Shapes.Button,
             ),
         ),
-        glow = ClickableSurfaceDefaults.glow(
-            focusedGlow = Glow(
-                elevationColor = if (accent) Brand.Accent else Color.Black,
-                elevation = 16.dp,
-            ),
-        ),
     ) {
         Row(
             Modifier.padding(horizontal = 30.dp, vertical = 15.dp),
@@ -241,8 +231,7 @@ fun PillButton(
 fun Chip(label: String) {
     Box(
         Modifier
-            .clip(Shapes.Chip)
-            .background(Brand.Surface)
+            .background(Brand.Surface, Shapes.Chip)
             .border(BorderStroke(1.dp, Brand.Hairline), Shapes.Chip)
             .padding(horizontal = 18.dp, vertical = 10.dp),
     ) {

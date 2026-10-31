@@ -7,6 +7,8 @@
 
 #include <jni.h>
 #include <android/log.h>
+#include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 
@@ -57,7 +59,41 @@ void cb_log(void *cls, int level, const char *msg) {
     __android_log_print(ANDROID_LOG_INFO, "raop", "%s", msg ? msg : "");
 }
 
+/**
+ * Maps the sender's capture clock (ntp_time_remote, the sender's own clock in
+ * ns) onto CLOCK_MONOTONIC for pacing. The core's synced ntp_time_local stays 0
+ * because its NTP timing exchange never completes with macOS senders, but
+ * pacing needs only the sender's frame spacing plus a stable offset: the
+ * smallest recent "arrival - capture" (the fastest frame = zero extra delay).
+ * FramePacer adds the link's jitter headroom on top. The offset tightens at once
+ * when a faster frame shows up, relaxes every few seconds to follow clock
+ * drift, and re-anchors on discontinuities.
+ */
+struct CaptureClock {
+    bool anchored = false;
+    int64_t offset = 0;
+    int64_t window_min = INT64_MAX;
+    int64_t window_start = 0;
+
+    int64_t to_mono(int64_t capture_ns, int64_t arrival_ns) {
+        int64_t d = arrival_ns - capture_ns;
+        if (!anchored || llabs(d - offset) > 1000000000LL) {   // first frame or clock jump
+            anchored = true; offset = d; window_min = d; window_start = arrival_ns;
+        }
+        if (d < offset) offset = d;
+        if (d < window_min) window_min = d;
+        if (arrival_ns - window_start > 5000000000LL) {
+            offset = window_min;
+            window_min = INT64_MAX;
+            window_start = arrival_ns;
+        }
+        return capture_ns + offset;
+    }
+};
+CaptureClock g_capture_clock;   // touched only on the core's mirror thread
+
 void cb_conn_init(void *cls) {
+    g_capture_clock = CaptureClock();   // a new sender has an unrelated clock
     Env e; if (e.env && g_self) e.env->CallVoidMethod(g_self, m_sessionStart);
 }
 void cb_conn_destroy(void *cls) {
@@ -79,25 +115,56 @@ int cb_video_set_codec_and_size(void *cls, video_codec_t codec,
     return 0;
 }
 
+// Frame-spacing histogram buckets (ms): <12, 12-21 (one 60Hz frame), 21-29,
+// 29-40 (two frames: one skipped), >=40. Only gaps under 200 ms count, so idle
+// pauses (the sender stops sending when nothing changes) don't pollute it.
+static int spacing_bucket(int64_t ns) {
+    double ms = ns / 1e6;
+    return ms < 12 ? 0 : ms < 21 ? 1 : ms < 29 ? 2 : ms < 40 ? 3 : 4;
+}
+
 void cb_video_process(void *cls, raop_ntp_t *ntp, video_decode_struct *data) {
     Env e; if (!e.env || !g_self || !data) return;
-    // Measure incoming frame rate: log fps over each ~2s window.
+    struct timespec mono;
+    clock_gettime(CLOCK_MONOTONIC, &mono);
+    int64_t mono_ns = (int64_t) mono.tv_sec * 1000000000LL + mono.tv_nsec;
+
+    // Every ~2 s: incoming fps, plus how far apart frames were *captured* on the
+    // sender vs how far apart they *arrived* here. Gaps in capture spacing mean
+    // the sender skipped frames; gaps only in arrival spacing mean the network
+    // bunched them.
     static int frames = 0;
-    static int64_t window_start = 0;
-    struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
-    int64_t now_ms = (int64_t) ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+    static int64_t window_start = 0, prev_capture = 0, prev_arrival = 0;
+    static int cap_hist[5] = {0}, arr_hist[5] = {0};
+    int64_t capture_ns = (int64_t) data->ntp_time_remote;
+    if (prev_capture && capture_ns > prev_capture && capture_ns - prev_capture < 200000000LL)
+        cap_hist[spacing_bucket(capture_ns - prev_capture)]++;
+    if (prev_arrival && mono_ns - prev_arrival < 200000000LL)
+        arr_hist[spacing_bucket(mono_ns - prev_arrival)]++;
+    prev_capture = capture_ns;
+    prev_arrival = mono_ns;
+    int64_t now_ms = mono_ns / 1000000;
     if (window_start == 0) window_start = now_ms;
     frames++;
     if (now_ms - window_start >= 2000) {
-        LOG("incoming video: %.1f fps (%d frames / %lld ms), last AU %d bytes",
+        LOG("incoming video: %.1f fps (%d frames / %lld ms), last AU %d bytes | "
+            "capture gaps <12/1f/21-29/2f/>40ms: %d/%d/%d/%d/%d | arrival: %d/%d/%d/%d/%d",
             frames * 1000.0 / (now_ms - window_start), frames,
-            (long long) (now_ms - window_start), data->data_len);
+            (long long) (now_ms - window_start), data->data_len,
+            cap_hist[0], cap_hist[1], cap_hist[2], cap_hist[3], cap_hist[4],
+            arr_hist[0], arr_hist[1], arr_hist[2], arr_hist[3], arr_hist[4]);
         frames = 0; window_start = now_ms;
+        memset(cap_hist, 0, sizeof(cap_hist));
+        memset(arr_hist, 0, sizeof(arr_hist));
     }
     jbyteArray buf = toBytes(e.env, data->data, data->data_len);
-    // ntp_time_local is in NTP units (µs since epoch base); pass as pts.
-    e.env->CallVoidMethod(g_self, m_videoFrame, buf,
-                          (jlong) data->ntp_time_local, JNI_FALSE);
+    // Capture time on CLOCK_MONOTONIC, the System.nanoTime() domain MediaCodec
+    // schedules releaseOutputBuffer() against. Without a capture timestamp,
+    // fall back to arrival time (no pacing benefit, but never wrong).
+    int64_t capture_mono_ns = capture_ns > 0
+        ? g_capture_clock.to_mono(capture_ns, mono_ns)
+        : mono_ns;
+    e.env->CallVoidMethod(g_self, m_videoFrame, buf, (jlong) capture_mono_ns, JNI_FALSE);
     e.env->DeleteLocalRef(buf);
 }
 

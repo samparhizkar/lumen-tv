@@ -28,6 +28,7 @@ class SettingsModel(
     var deviceName: String,
     var autoStart: Boolean,
     var requirePin: Boolean,
+    var accurateColors: Boolean,
     val ip: String?,
     val version: String,
 )
@@ -38,21 +39,25 @@ fun SettingsScreen(
     onNameChange: (String) -> Unit,
     onAutoStart: (Boolean) -> Unit,
     onRequirePin: (Boolean) -> Unit,
+    onAccurateColors: (Boolean) -> Unit,
     onBack: () -> Unit,
 ) {
     var name by remember { mutableStateOf(model.deviceName) }
     var auto by remember { mutableStateOf(model.autoStart) }
     var pin by remember { mutableStateOf(model.requirePin) }
+    var accurate by remember { mutableStateOf(model.accurateColors) }
     var editingName by remember { mutableStateOf(false) }
+    var showingPictureTest by remember { mutableStateOf(false) }
 
     val firstRow = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { firstRow.requestFocus() } }
 
-    // While editing, Back closes the editor; otherwise Back leaves Settings.
+    // Back closes whichever overlay is open; otherwise it leaves Settings.
     BackHandler(enabled = editingName) { editingName = false }
-    BackHandler(enabled = !editingName) { onBack() }
+    BackHandler(enabled = showingPictureTest) { showingPictureTest = false }
+    BackHandler(enabled = !editingName && !showingPictureTest) { onBack() }
 
-    ScreenBackground {
+    ScreenBackground(ambient = false) {
         Column(
             Modifier
                 .fillMaxSize()
@@ -96,6 +101,23 @@ fun SettingsScreen(
             }
 
             Spacer(Modifier.height(36.dp))
+            SectionHeader("Display")
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                ToggleRow(
+                    title = "Accurate colors",
+                    subtitle = "Draw video with exact blacks and whites. Can lower smoothness on some TVs.",
+                    checked = accurate,
+                    onCheckedChange = { accurate = it; onAccurateColors(it) },
+                )
+                ActionRow(
+                    title = "Picture test",
+                    subtitle = "Check this TV shows every shade from black to white",
+                    value = "",
+                    onClick = { showingPictureTest = true },
+                )
+            }
+
+            Spacer(Modifier.height(36.dp))
             SectionHeader("About")
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 InfoRow("Status", model.ip?.let { "On network · $it" } ?: "Starting…")
@@ -109,6 +131,8 @@ fun SettingsScreen(
             Spacer(Modifier.height(24.dp))
         }
     }
+
+    if (showingPictureTest) PictureTest()
 
     if (editingName) {
         NameEditor(

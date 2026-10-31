@@ -20,7 +20,8 @@ class AirPlayCore(private val cb: Callbacks) {
         /** H.264/HEVC config (SPS/PPS/VPS), Annex-B framed. */
         fun onVideoConfig(codec: Int, width: Int, height: Int, csd0: ByteArray, csd1: ByteArray?)
         /** One decrypted, Annex-B access unit. */
-        fun onVideoFrame(data: ByteArray, ptsUs: Long, isIdr: Boolean)
+        /** [captureNs]: sender capture time on the System.nanoTime() clock. */
+        fun onVideoFrame(data: ByteArray, captureNs: Long, isIdr: Boolean)
         /** Audio format negotiated (0=ALAC 1=AAC_LC 2=AAC_ELD), + csd. */
         fun onAudioConfig(format: Int, sampleRate: Int, channels: Int, csd0: ByteArray?)
         /** One decrypted audio packet. */
@@ -41,8 +42,8 @@ class AirPlayCore(private val cb: Callbacks) {
     private fun nvVideoConfig(codec: Int, width: Int, height: Int, csd0: ByteArray, csd1: ByteArray?) =
         cb.onVideoConfig(codec, width, height, csd0, csd1)
     @Suppress("unused")
-    private fun nvVideoFrame(data: ByteArray, ptsUs: Long, isIdr: Boolean) =
-        cb.onVideoFrame(data, ptsUs, isIdr)
+    private fun nvVideoFrame(data: ByteArray, captureNs: Long, isIdr: Boolean) =
+        cb.onVideoFrame(data, captureNs, isIdr)
     @Suppress("unused")
     private fun nvAudioConfig(format: Int, sampleRate: Int, channels: Int, csd0: ByteArray?) =
         cb.onAudioConfig(format, sampleRate, channels, csd0)

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Beam contrast test</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; color: #888; font: 600 18px -apple-system, system-ui, sans-serif; }
+  main { display: grid; grid-template-rows: auto 1fr auto 1fr auto; height: 100%; padding: 4vh 4vw; box-sizing: border-box; gap: 2vh; }
+  h2 { margin: 0; font-size: 20px; color: #777; }
+  .row { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 0; border-radius: 12px; overflow: hidden; }
+  .row div { display: flex; align-items: flex-end; justify-content: center; padding-bottom: 10px; font-size: 16px; }
+  .ramp { height: 6vh; border-radius: 12px; background: linear-gradient(to right, #000, #fff); }
+</style>
+</head>
+<body>
+<main>
+  <h2>Near-black steps — on the Mac you can see every box. Which ones merge into black on the TV?</h2>
+  <div class="row" id="dark"></div>
+  <div class="ramp"></div>
+  <div class="row" id="light"></div>
+  <h2>Near-white steps — on the Mac each box is slightly different. Which ones merge into white on the TV?</h2>
+</main>
+<script>
+  const dark = [0, 4, 8, 12, 16, 20, 24, 32, 40, 48];
+  const light = [200, 210, 220, 230, 235, 240, 245, 250, 255];
+  function fill(id, values, textColor) {
+    const row = document.getElementById(id);
+    for (const v of values) {
+      const d = document.createElement('div');
+      d.style.background = `rgb(${v},${v},${v})`;
+      d.style.color = textColor;
+      d.textContent = v;
+      row.appendChild(d);
+    }
+  }
+  fill('dark', dark, '#555');
+  fill('light', light, '#333');
+</script>
+</body>
+</html>

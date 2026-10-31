@@ -12,8 +12,8 @@ android {
         applicationId = "com.airplay.receiver"
         minSdk = 28          // Sony dongle is API 34; keep headroom for other boxes
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 3
+        versionName = "0.3.0"
         ndk {
             // Homatics dongle userspace is 32-bit only.
             abiFilters += listOf("armeabi-v7a")
@@ -33,7 +33,13 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // R8 + resource shrinking; Compose is several times slower without it.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            // Sideload-signed with the local debug key for now so it installs over
+            // dev builds; swap in a real upload key before any store release.
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
     buildFeatures { compose = true }
@@ -54,4 +60,7 @@ dependencies {
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.animation:animation")
     implementation("androidx.tv:tv-material:1.0.0")
+    // Installs the Compose libraries' baseline profiles so their hot paths are
+    // AOT-compiled on sideloaded installs too, not just Play installs.
+    implementation("androidx.profileinstaller:profileinstaller:1.3.1")
 }

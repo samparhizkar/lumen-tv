@@ -39,8 +39,8 @@ class AirPlayService : Service() {
             override fun onVideoConfig(codec: Int, width: Int, height: Int, csd0: ByteArray, csd1: ByteArray?) {
                 MirrorActivityBridge.onVideoConfig(this@AirPlayService, codec, width, height, csd0, csd1)
             }
-            override fun onVideoFrame(data: ByteArray, ptsUs: Long, isIdr: Boolean) =
-                MirrorActivityBridge.onVideoFrame(data, ptsUs, isIdr)
+            override fun onVideoFrame(data: ByteArray, captureNs: Long, isIdr: Boolean) =
+                MirrorActivityBridge.onVideoFrame(data, captureNs, isIdr)
             override fun onAudioConfig(format: Int, sampleRate: Int, channels: Int, csd0: ByteArray?) =
                 MirrorActivityBridge.onAudioConfig(format, sampleRate, channels, csd0)
             override fun onAudioPacket(data: ByteArray, ptsUs: Long) =

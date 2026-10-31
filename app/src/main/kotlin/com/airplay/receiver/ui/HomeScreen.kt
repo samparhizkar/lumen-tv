@@ -22,6 +22,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
@@ -31,35 +32,54 @@ import com.airplay.receiver.ReceiverState
 fun HomeScreen(
     status: ReceiverState.Status,
     onOpenSettings: () -> Unit,
+    needsOverlayPermission: Boolean = false,
+    onAllowOverlay: () -> Unit = {},
 ) {
     val settingsFocus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { settingsFocus.requestFocus() } }
+    val allowFocus = remember { FocusRequester() }
+    val kind = statusKind(status, needsOverlayPermission)
+    // Land on the one thing to do next: "Allow" during setup, else Settings.
+    LaunchedEffect(kind == Kind.SETUP) {
+        runCatching { (if (kind == Kind.SETUP) allowFocus else settingsFocus).requestFocus() }
+    }
 
     ScreenBackground {
         val connected = status is ReceiverState.Status.Connected
         val ready = status is ReceiverState.Status.Ready
         val error = status is ReceiverState.Status.Error
 
-        // Wordmark pinned to the top-left so it never steals hero vertical space.
+        // Top bar: wordmark left, Settings right (tvOS style). Keeping Settings out
+        // of the centre column is what lets the hero fit the 540dp-tall screen;
+        // at the bottom it was squeezed until its label clipped away.
         Row(
-            Modifier.align(Alignment.TopStart).padding(start = 72.dp, top = 48.dp),
+            Modifier
+                .align(Alignment.TopStart)
+                .fillMaxWidth()
+                .padding(start = 72.dp, end = 64.dp, top = 36.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text("Beam", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Brand.Text, letterSpacing = 0.5.sp)
             Spacer(Modifier.width(12.dp))
             Text("Beam your screen to any TV", fontSize = 15.sp, color = Brand.TextMuted)
+            Spacer(Modifier.weight(1f))
+            PillButton(
+                label = "Settings",
+                leading = "⚙",
+                onClick = onOpenSettings,
+                modifier = Modifier.focusRequester(settingsFocus),
+            )
         }
 
         Column(
             Modifier
                 .fillMaxSize()
-                .padding(horizontal = 80.dp, vertical = 36.dp),
+                .padding(horizontal = 80.dp, vertical = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
             AirPlayGlyph(active = ready, connected = connected, error = error)
 
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(14.dp))
             Text(
                 text = headline(status),
                 fontSize = 40.sp,
@@ -67,7 +87,7 @@ fun HomeScreen(
                 color = Brand.Text,
                 letterSpacing = (-0.5).sp,
             )
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(8.dp))
             Text(
                 text = statusLine(status),
                 fontSize = 19.sp,
@@ -79,40 +99,70 @@ fun HomeScreen(
                 },
             )
 
-            Spacer(Modifier.height(26.dp))
+            Spacer(Modifier.height(22.dp))
 
             AnimatedContent(
-                targetState = statusKind(status),
+                targetState = kind,
                 transitionSpec = { fadeIn(tween(350)) togetherWith fadeOut(tween(200)) },
                 label = "hero",
             ) { kind ->
                 when (kind) {
+                    Kind.SETUP -> PermissionCard(onAllow = onAllowOverlay, focus = allowFocus)
                     Kind.READY -> InstructionCard(deviceName = (status as? ReceiverState.Status.Ready)?.deviceName ?: "this TV")
                     Kind.CONNECTED -> ConnectedCard(status as ReceiverState.Status.Connected)
                     Kind.ERROR -> MessageCard((status as? ReceiverState.Status.Error)?.message ?: "Something went wrong", danger = true)
                     Kind.STARTING -> MessageCard("Getting ready to receive…", danger = false)
                 }
             }
-
-            Spacer(Modifier.height(26.dp))
-
-            PillButton(
-                label = "Settings",
-                leading = "⚙",
-                onClick = onOpenSettings,
-                modifier = Modifier.focusRequester(settingsFocus),
-            )
         }
     }
 }
 
-private enum class Kind { STARTING, READY, CONNECTED, ERROR }
+private enum class Kind { STARTING, SETUP, READY, CONNECTED, ERROR }
 
-private fun statusKind(s: ReceiverState.Status) = when (s) {
+private fun statusKind(s: ReceiverState.Status, needsOverlayPermission: Boolean) = when (s) {
     ReceiverState.Status.Starting -> Kind.STARTING
-    is ReceiverState.Status.Ready -> Kind.READY
+    is ReceiverState.Status.Ready -> if (needsOverlayPermission) Kind.SETUP else Kind.READY
     is ReceiverState.Status.Connected -> Kind.CONNECTED
     is ReceiverState.Status.Error -> Kind.ERROR
+}
+
+/**
+ * First-run step: without "display over other apps", Android won't let Beam
+ * bring the mirror screen forward while another app is on the TV.
+ */
+@Composable
+private fun PermissionCard(onAllow: () -> Unit, focus: FocusRequester) {
+    Column(
+        Modifier
+            .widthIn(max = 900.dp)
+            .clip(Shapes.Card)
+            .background(Brand.Surface.copy(alpha = 0.72f))
+            .padding(horizontal = 40.dp, vertical = 26.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            "One quick step before your first mirror",
+            fontSize = 20.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Brand.Text,
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "Allow Beam to appear over other apps, so your screen shows up the " +
+                "moment you connect, even while you're watching something else.",
+            fontSize = 16.sp,
+            color = Brand.TextDim,
+            textAlign = TextAlign.Center,
+        )
+        Spacer(Modifier.height(20.dp))
+        PillButton(
+            label = "Allow",
+            accent = true,
+            onClick = onAllow,
+            modifier = Modifier.focusRequester(focus),
+        )
+    }
 }
 
 /** "How to connect" — a compact, inviting, non-technical three-step strip. */
@@ -230,7 +280,7 @@ private fun AirPlayGlyph(active: Boolean, connected: Boolean, error: Boolean) {
         else -> Brand.Accent
     }
 
-    Box(Modifier.size(172.dp), contentAlignment = Alignment.Center) {
+    Box(Modifier.size(150.dp), contentAlignment = Alignment.Center) {
         // Soft ambient bloom behind the mark (radial gradient — no hard edges,
         // matched to the container so it never adds to the layout footprint).
         Box(
@@ -245,7 +295,7 @@ private fun AirPlayGlyph(active: Boolean, connected: Boolean, error: Boolean) {
                     )
                 ),
         )
-        Canvas(Modifier.size(148.dp)) {
+        Canvas(Modifier.size(130.dp)) {
             val cx = size.width / 2f
             val cy = size.height / 2f
             val unit = size.minDimension
