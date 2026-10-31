@@ -1,15 +1,20 @@
 package io.github.samparhizkar.lumen
 
 import android.app.Activity
+import android.graphics.Color
 import android.graphics.SurfaceTexture
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Bundle
+import android.view.Gravity
 import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.TextureView
+import android.view.View
+import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.WindowManager
+import android.widget.FrameLayout
 import io.github.samparhizkar.lumen.media.VideoPipeline
 import io.github.samparhizkar.lumen.service.AirPlayService
 import io.github.samparhizkar.lumen.service.MirrorActivityBridge
@@ -35,6 +40,10 @@ import java.nio.ByteBuffer
 class MirrorActivity : Activity() {
 
     private lateinit var video: VideoPipeline
+    private lateinit var root: FrameLayout
+    private lateinit var videoView: View
+    private var videoW = 0
+    private var videoH = 0
 
     private var outputSurface: Surface? = null
     private val wifiLocks = mutableListOf<WifiManager.WifiLock>()
@@ -55,15 +64,20 @@ class MirrorActivity : Activity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             window.setPreferMinimalPostProcessing(true)
         }
-        if (Prefs(this).accurateColors) {
-            // TextureView consumers ignore buffer timestamps, so the pipeline
-            // times each release itself.
-            video = VideoPipeline(selfTimedRelease = true)
-            setContentView(TextureView(this).apply { surfaceTextureListener = textureListener })
-        } else {
-            video = VideoPipeline(selfTimedRelease = false)
-            setContentView(SurfaceView(this).apply { holder.addCallback(holderCallback) })
+        // The video view is sized to the picture's aspect and centred on black
+        // (see fitVideo): stretched to fill, a portrait iPhone came out squashed wide.
+        val accurate = Prefs(this).accurateColors
+        // TextureView consumers ignore buffer timestamps, so the pipeline then
+        // times each release itself.
+        video = VideoPipeline(selfTimedRelease = accurate, onVideoSize = { w, h -> runOnUiThread { fitVideo(w, h) } })
+        videoView = if (accurate) TextureView(this).apply { surfaceTextureListener = textureListener }
+        else SurfaceView(this).apply { holder.addCallback(holderCallback) }
+        root = FrameLayout(this).apply {
+            setBackgroundColor(Color.BLACK)
+            addView(videoView, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT, Gravity.CENTER))
+            addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> if (videoW > 0) fitVideo(videoW, videoH) }
         }
+        setContentView(root)
         AirPlayService.start(this)       // ensure the core is running
     }
 
@@ -160,6 +174,20 @@ class MirrorActivity : Activity() {
     }
 
     fun finishMirror() = runOnUiThread { finish() }
+
+    /** Letterboxes or pillarboxes the video view to the picture's aspect ratio. */
+    private fun fitVideo(w: Int, h: Int) {
+        videoW = w; videoH = h
+        val boxW = root.width
+        val boxH = root.height
+        if (boxW == 0 || boxH == 0) return  // re-run from the layout listener
+        val (fitW, fitH) = if (w.toLong() * boxH > h.toLong() * boxW) boxW to (boxW.toLong() * h / w).toInt()
+        else (boxH.toLong() * w / h).toInt() to boxH
+        val lp = videoView.layoutParams as FrameLayout.LayoutParams
+        if (lp.width == fitW && lp.height == fitH) return
+        lp.width = fitW; lp.height = fitH
+        videoView.layoutParams = lp
+    }
 
     // --- helpers ---
     private fun startVideo(surface: Surface, codec: Int, w: Int, h: Int, csd0: ByteArray, csd1: ByteArray?) {

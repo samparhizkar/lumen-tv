@@ -38,6 +38,11 @@ class VideoPipeline(
      */
     private val selfTimedRelease: Boolean,
     private val preferLowLatency: Boolean = true,
+    /**
+     * The decoded picture's visible size, on every change (an iPhone switches
+     * between portrait and landscape mid-stream). Called on the codec thread.
+     */
+    private val onVideoSize: (width: Int, height: Int) -> Unit = { _, _ -> },
 ) {
     enum class Codec(val mime: String, val hwNameHint: String) {
         H264(MediaFormat.MIMETYPE_VIDEO_AVC, "c2.amlogic.avc.decoder"),
@@ -167,6 +172,14 @@ class VideoPipeline(
 
         override fun onOutputFormatChanged(mc: MediaCodec, format: MediaFormat) {
             Log.i(TAG, "output format: $format")
+            // The visible picture is the crop rect; width/height can include padding.
+            val w = if (format.containsKey(MediaFormat.KEY_CROP_RIGHT))
+                format.getInteger(MediaFormat.KEY_CROP_RIGHT) - format.getInteger(MediaFormat.KEY_CROP_LEFT) + 1
+            else format.getInteger(MediaFormat.KEY_WIDTH)
+            val h = if (format.containsKey(MediaFormat.KEY_CROP_BOTTOM))
+                format.getInteger(MediaFormat.KEY_CROP_BOTTOM) - format.getInteger(MediaFormat.KEY_CROP_TOP) + 1
+            else format.getInteger(MediaFormat.KEY_HEIGHT)
+            if (w > 0 && h > 0) onVideoSize(w, h)
         }
 
         override fun onError(mc: MediaCodec, e: MediaCodec.CodecException) {
