@@ -12,6 +12,7 @@ import android.util.Log
 import com.airplay.receiver.HomeActivity
 import com.airplay.receiver.Prefs
 import com.airplay.receiver.ReceiverState
+import com.airplay.receiver.media.AudioPipeline
 import com.airplay.receiver.net.AirPlayCore
 import com.airplay.receiver.net.BonjourAdvertiser
 
@@ -21,14 +22,14 @@ import com.airplay.receiver.net.BonjourAdvertiser
  * runs its equivalent as a persistent system service — we approximate with a
  * foreground service + boot receiver, the best an unprivileged app can do).
  *
- * Decrypted media from the core is handed to the MirrorActivity when it is in
- * front; the service holds the session and launches the activity on session
- * start.
+ * Video goes to the MirrorActivity (opened when a sender starts mirroring);
+ * audio is played right here, so audio-only AirPlay works with no screen.
  */
 class AirPlayService : Service() {
 
     private lateinit var advertiser: BonjourAdvertiser
     private var core: AirPlayCore? = null
+    private val audio = AudioPipeline()
 
     override fun onCreate() {
         super.onCreate()
@@ -37,21 +38,24 @@ class AirPlayService : Service() {
 
         val c = AirPlayCore(object : AirPlayCore.Callbacks {
             override fun onVideoConfig(codec: Int, width: Int, height: Int, csd0: ByteArray, csd1: ByteArray?) {
+                // Video means screen mirroring: only now open the mirror screen,
+                // so an audio-only session never pops up a black screen.
+                ReceiverState.setConnected("AirPlay", ReceiverState.Session.MIRRORING)
                 MirrorActivityBridge.onVideoConfig(this@AirPlayService, codec, width, height, csd0, csd1)
             }
             override fun onVideoFrame(data: ByteArray, captureNs: Long, isIdr: Boolean) =
                 MirrorActivityBridge.onVideoFrame(data, captureNs, isIdr)
-            override fun onAudioConfig(format: Int, sampleRate: Int, channels: Int, csd0: ByteArray?) =
-                MirrorActivityBridge.onAudioConfig(format, sampleRate, channels, csd0)
-            override fun onAudioPacket(data: ByteArray, ptsUs: Long) =
-                MirrorActivityBridge.onAudioPacket(data, ptsUs)
-            override fun onTimingSync(streamPtsUs: Long, localPlaybackUs: Long) =
-                MirrorActivityBridge.onTimingSync(streamPtsUs, localPlaybackUs)
+            override fun onAudioConfig(format: Int, sampleRate: Int, channels: Int, csd0: ByteArray?) {
+                audio.configure(format, sampleRate, channels, csd0)
+            }
+            override fun onAudioPacket(data: ByteArray, ptsUs: Long) = audio.submit(data, ptsUs)
+            override fun onAudioVolume(volumeDb: Float) = audio.setVolumeDb(volumeDb)
+            override fun onAudioFlush() = audio.flush()
             override fun onSessionStart() {
-                ReceiverState.setConnected("AirPlay", ReceiverState.Session.MIRRORING)
-                MirrorActivityBridge.launch(this@AirPlayService)
+                ReceiverState.setConnected("AirPlay", ReceiverState.Session.AUDIO)
             }
             override fun onSessionEnd() {
+                audio.stop()
                 ReceiverState.setReady(Prefs(this@AirPlayService).deviceName, HomeActivity.localIp())
                 MirrorActivityBridge.finish()
             }
@@ -70,6 +74,7 @@ class AirPlayService : Service() {
     override fun onDestroy() {
         advertiser.unregister()
         runCatching { core?.nativeStop() }
+        audio.stop()
         super.onDestroy()
     }
 

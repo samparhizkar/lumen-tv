@@ -32,6 +32,8 @@ jmethodID m_videoConfig = nullptr; // (III[B[B)V
 jmethodID m_videoFrame = nullptr;  // ([BJZ)V
 jmethodID m_audioConfig = nullptr; // (III[B)V
 jmethodID m_audioPacket = nullptr; // ([BJ)V
+jmethodID m_audioVolume = nullptr; // (F)V
+jmethodID m_audioFlush = nullptr;  // ()V
 jmethodID m_sessionStart = nullptr;
 jmethodID m_sessionEnd = nullptr;
 
@@ -168,16 +170,40 @@ void cb_video_process(void *cls, raop_ntp_t *ntp, video_decode_struct *data) {
     e.env->DeleteLocalRef(buf);
 }
 
+// Called at the audio stream's SETUP with what the sender will send. ct is the
+// RAOP compression type: 2 = ALAC (audio-only AirPlay, e.g. Music), 8 = AAC-ELD
+// (screen mirroring audio). Classic AirPlay audio is 44.1 kHz stereo.
 void cb_audio_get_format(void *cls, unsigned char *ct, unsigned short *spf,
                          bool *usingScreen, bool *isMedia, uint64_t *audioFormat) {
-    // Minimal: accept whatever the sender offers; detailed negotiation later.
+    LOG("audio format: ct=%u spf=%u usingScreen=%d isMedia=%d audioFormat=0x%llx",
+        (unsigned) *ct, (unsigned) *spf, (int) *usingScreen, (int) *isMedia,
+        (unsigned long long) *audioFormat);
+    jint format;   // AudioPipeline.FORMAT_*
+    switch (*ct) {
+        case 2: format = 0; break;   // ALAC
+        case 4: format = 1; break;   // AAC-LC
+        case 8: format = 2; break;   // AAC-ELD
+        default: format = -1; break;
+    }
+    Env e; if (!e.env || !g_self) return;
+    e.env->CallVoidMethod(g_self, m_audioConfig, format, (jint) 44100, (jint) 2, (jbyteArray) nullptr);
 }
 
 void cb_audio_process(void *cls, raop_ntp_t *ntp, audio_decode_struct *data) {
     Env e; if (!e.env || !g_self || !data) return;
     jbyteArray buf = toBytes(e.env, data->data, data->data_len);
-    e.env->CallVoidMethod(g_self, m_audioPacket, buf, (jlong) data->ntp_time_local);
+    // Sender timestamp (ns on the sender's clock) as µs; ntp_time_local stays 0
+    // because the core's NTP exchange never completes (see CaptureClock).
+    e.env->CallVoidMethod(g_self, m_audioPacket, buf, (jlong) (data->ntp_time_remote / 1000));
     e.env->DeleteLocalRef(buf);
+}
+
+void cb_audio_set_volume(void *cls, float volume_db) {
+    Env e; if (e.env && g_self) e.env->CallVoidMethod(g_self, m_audioVolume, (jfloat) volume_db);
+}
+
+void cb_audio_flush(void *cls) {
+    Env e; if (e.env && g_self) e.env->CallVoidMethod(g_self, m_audioFlush);
 }
 
 // --- no-op stubs for the remaining callbacks ---------------------------------
@@ -187,7 +213,6 @@ void st_void(void *cls) {}
 void st_video_reset(void *cls, reset_type_t r) {}
 void st_conn_reset(void *cls, int reason) {}
 double st_audio_client_volume(void *cls) { return 0.0; }
-void st_audio_set_volume(void *cls, float v) {}
 void st_audio_set_metadata(void *cls, const void *b, int l) {}
 void st_audio_set_coverart(void *cls, const void *b, int l) {}
 void st_audio_remote_control_id(void *cls, const char *d, const char *a) {}
@@ -227,6 +252,8 @@ Java_com_airplay_receiver_net_AirPlayCore_nativeStart(JNIEnv *env, jobject thiz,
     m_videoFrame = env->GetMethodID(cls, "nvVideoFrame", "([BJZ)V");
     m_audioConfig = env->GetMethodID(cls, "nvAudioConfig", "(III[B)V");
     m_audioPacket = env->GetMethodID(cls, "nvAudioPacket", "([BJ)V");
+    m_audioVolume = env->GetMethodID(cls, "nvAudioVolume", "(F)V");
+    m_audioFlush = env->GetMethodID(cls, "nvAudioFlush", "()V");
     m_sessionStart = env->GetMethodID(cls, "nvSessionStart", "()V");
     m_sessionEnd = env->GetMethodID(cls, "nvSessionEnd", "()V");
 
@@ -245,10 +272,10 @@ Java_com_airplay_receiver_net_AirPlayCore_nativeStart(JNIEnv *env, jobject thiz,
     cbs.conn_feedback = st_void;
     cbs.conn_reset = st_conn_reset;
     cbs.video_reset = st_video_reset;
-    cbs.audio_flush = st_void;
+    cbs.audio_flush = cb_audio_flush;
     cbs.video_flush = st_void;
     cbs.audio_set_client_volume = st_audio_client_volume;
-    cbs.audio_set_volume = st_audio_set_volume;
+    cbs.audio_set_volume = cb_audio_set_volume;
     cbs.audio_set_metadata = st_audio_set_metadata;
     cbs.audio_set_coverart = st_audio_set_coverart;
     cbs.audio_stop_coverart_rendering = st_void;

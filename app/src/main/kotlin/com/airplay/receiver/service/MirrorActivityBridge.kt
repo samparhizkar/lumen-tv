@@ -13,7 +13,7 @@ import com.airplay.receiver.MirrorActivity
  * appear a moment later — or, if Android blocked the launch, only once the user
  * has let Beam display over other apps. So the bridge keeps what a newly
  * attached activity needs to start decoding mid-stream:
- *  - the latest video/audio config, and
+ *  - the latest video config, and
  *  - every video access unit since the most recent keyframe (one GOP), because
  *    the decoder can only start from a keyframe that carries SPS/PPS.
  * On attach both are replayed in order, then live frames follow.
@@ -27,14 +27,12 @@ object MirrorActivityBridge {
     private const val RELAUNCH_INTERVAL_MS = 3_000L
 
     private class VideoConfig(val codec: Int, val w: Int, val h: Int, val csd0: ByteArray, val csd1: ByteArray?)
-    private class AudioConfig(val format: Int, val sampleRate: Int, val channels: Int, val csd0: ByteArray?)
     private class Frame(val data: ByteArray, val captureNs: Long, val isIdr: Boolean)
 
     private val lock = Any()
     private var sink: MirrorActivity? = null
     private var appContext: Context? = null
     private var videoConfig: VideoConfig? = null
-    private var audioConfig: AudioConfig? = null
     private val gop = ArrayList<Frame>()
     private var gopBytes = 0L
     private var haveKeyframe = false
@@ -46,7 +44,6 @@ object MirrorActivityBridge {
         sink = activity
         attachedThisSession = true
         videoConfig?.let { activity.onVideoConfig(it.codec, it.w, it.h, it.csd0, it.csd1) }
-        audioConfig?.let { activity.onAudioConfig(it.format, it.sampleRate, it.channels, it.csd0) }
         if (haveKeyframe) gop.forEach { activity.onVideoFrame(it.data, it.captureNs, it.isIdr) }
     }
 
@@ -74,7 +71,6 @@ object MirrorActivityBridge {
     fun finish() {
         val s = synchronized(lock) {
             videoConfig = null
-            audioConfig = null
             gop.clear(); gopBytes = 0; haveKeyframe = false
             attachedThisSession = false
             sink
@@ -123,20 +119,8 @@ object MirrorActivityBridge {
         relaunchFrom?.let { launch(it) }
     }
 
-    fun onAudioConfig(format: Int, sampleRate: Int, channels: Int, csd0: ByteArray?) {
-        synchronized(lock) {
-            audioConfig = AudioConfig(format, sampleRate, channels, csd0)
-            sink?.onAudioConfig(format, sampleRate, channels, csd0)
-        }
-    }
 
-    fun onAudioPacket(data: ByteArray, ptsUs: Long) {
-        synchronized(lock) { sink }?.onAudioPacket(data, ptsUs)
-    }
 
-    fun onTimingSync(streamPtsUs: Long, localPlaybackUs: Long) {
-        synchronized(lock) { sink }?.onTimingSync(streamPtsUs, localPlaybackUs)
-    }
 
     /**
      * True if the Annex-B access unit opens a GOP: a parameter set or IDR slice

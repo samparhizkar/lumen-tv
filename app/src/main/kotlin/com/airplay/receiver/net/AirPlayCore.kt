@@ -22,12 +22,14 @@ class AirPlayCore(private val cb: Callbacks) {
         /** One decrypted, Annex-B access unit. */
         /** [captureNs]: sender capture time on the System.nanoTime() clock. */
         fun onVideoFrame(data: ByteArray, captureNs: Long, isIdr: Boolean)
-        /** Audio format negotiated (0=ALAC 1=AAC_LC 2=AAC_ELD), + csd. */
+        /** Audio format negotiated at SETUP (0=ALAC 1=AAC_LC 2=AAC_ELD, -1 unknown), + csd. */
         fun onAudioConfig(format: Int, sampleRate: Int, channels: Int, csd0: ByteArray?)
-        /** One decrypted audio packet. */
+        /** One decrypted audio packet. [ptsUs]: sender timestamp in µs. */
         fun onAudioPacket(data: ByteArray, ptsUs: Long)
-        /** Clock sync point from the stream's timing channel (NTP domain). */
-        fun onTimingSync(streamPtsUs: Long, localPlaybackUs: Long)
+        /** Sender volume in dB (-144 = mute, else about -30..0). */
+        fun onAudioVolume(volumeDb: Float)
+        /** Sender paused/seeked: drop queued audio. */
+        fun onAudioFlush()
         fun onSessionStart()
         fun onSessionEnd()
     }
@@ -49,6 +51,10 @@ class AirPlayCore(private val cb: Callbacks) {
         cb.onAudioConfig(format, sampleRate, channels, csd0)
     @Suppress("unused")
     private fun nvAudioPacket(data: ByteArray, ptsUs: Long) = cb.onAudioPacket(data, ptsUs)
+    @Suppress("unused")
+    private fun nvAudioVolume(volumeDb: Float) = cb.onAudioVolume(volumeDb)
+    @Suppress("unused")
+    private fun nvAudioFlush() = cb.onAudioFlush()
     @Suppress("unused")
     private fun nvSessionStart() = cb.onSessionStart()
     @Suppress("unused")

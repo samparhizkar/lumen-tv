@@ -10,8 +10,6 @@ import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.TextureView
 import android.view.WindowManager
-import com.airplay.receiver.media.AudioPipeline
-import com.airplay.receiver.media.MirrorClock
 import com.airplay.receiver.media.VideoPipeline
 import com.airplay.receiver.service.AirPlayService
 import com.airplay.receiver.service.MirrorActivityBridge
@@ -30,14 +28,13 @@ import java.nio.ByteBuffer
  *    levels. Measured on the Amlogic S905Y4: ~48 ms of GPU per frame, i.e.
  *    only ~40 fps, so it is not the default.
  *
- * The service pushes decrypted media here via MirrorActivityBridge; we own the
- * decode/render pipelines and the shared clock.
+ * The service pushes decrypted video here via MirrorActivityBridge; this screen
+ * owns the video pipeline. Audio is played by the service, so it also works for
+ * audio-only AirPlay where no screen opens.
  */
 class MirrorActivity : Activity() {
 
-    private val clock = MirrorClock()
     private lateinit var video: VideoPipeline
-    private val audio = AudioPipeline(clock)
 
     private var outputSurface: Surface? = null
     private val wifiLocks = mutableListOf<WifiManager.WifiLock>()
@@ -85,7 +82,7 @@ class MirrorActivity : Activity() {
         super.onStop()
     }
 
-    override fun onDestroy() { video.stop(); audio.stop(); super.onDestroy() }
+    override fun onDestroy() { video.stop(); super.onDestroy() }
 
     /**
      * Turns off Wi-Fi power saving while the mirror is on screen. Power-save
@@ -161,13 +158,6 @@ class MirrorActivity : Activity() {
         // SPS/PPS prepended inline (see UxPlay raop_rtp_mirror). Feed it verbatim.
         video.submitFrame(ByteBuffer.wrap(data), captureNs, isIdr, isConfig = false)
     }
-
-    fun onAudioConfig(format: Int, sampleRate: Int, channels: Int, csd0: ByteArray?) =
-        audio.configure(format, sampleRate, channels, csd0)
-
-    fun onAudioPacket(data: ByteArray, ptsUs: Long) = audio.submit(data, ptsUs)
-
-    fun onTimingSync(streamPtsUs: Long, localPlaybackUs: Long) = clock.updateSync(streamPtsUs, localPlaybackUs)
 
     fun finishMirror() = runOnUiThread { finish() }
 
