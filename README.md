@@ -42,16 +42,19 @@ it (HEVC 4K60 vs. the Sony's H.264 1080p cap).
 ```
 
 ## Status
-- [x] Reverse-engineering + spec (`docs/`)
-- [x] Android app skeleton: service, boot start, mDNS advert (`NsdManager`)
-- [x] **Video pipeline** — clean reimplementation of the Sony render thread:
-      hw decoder by capability, H.264 **and HEVC**, async `MediaCodec`,
-      `low-latency`, SurfaceView, ns-correct frame pacing + IDR rules.
-- [x] **Audio pipeline** — ALAC(PCM)/AAC-LC/AAC-ELD, csd per spec, AudioTrack.
-- [x] JNI contract to the native core (`AirPlayCore.kt`, `native-core/README.md`)
-- [ ] Vendor + wire the native protocol core (the one reused piece)
-- [ ] End-to-end bring-up on the dongle
-- [ ] A/V sync tuning against the real timing channel
+Working on the Homatics Dongle R 4K (tested with iPhone and Mac):
+- [x] **Screen mirroring** from iPhone, iPad, and Mac: hardware H.264/HEVC
+      decode, 1080p60, low latency, aspect-correct (a portrait iPhone is
+      pillarboxed; it goes full-screen when an app rotates).
+- [x] **Audio** with mirroring (AAC-ELD), sender volume and mute.
+- [x] **Audio-only AirPlay**: iPhone; Mac Music via the "<name> Speaker" entry
+      (classic AirTunes, RSA-wrapped key, ALAC). A Mac that picks the main entry
+      for Music wraps the key with FairPlay v2, which can't be unwrapped.
+- [x] First-run setup: room name (e.g. "Living Room TV"), display-over-apps.
+- [ ] A/V sync and frame pacing against a calibrated clock (the core's NTP
+      exchange never completes with macOS; pacing uses sender timestamps).
+- [ ] Real Wi-Fi MAC as the device id; persistent pairing key across renames.
+- [ ] Release signing and a public release.
 
 ## Scope (unprivileged, by necessity)
 Classic AirPlay: screen mirroring + audio. **Not** AirPlay-2 buffered audio /
@@ -59,8 +62,9 @@ multi-room / HDMI-CEC wake — those need PTP on ports 319/320, i.e. root, which
 dongle's locked bootloader denies (see `docs/DONGLE-CAPS.md`).
 
 ## Building
-Needs Android SDK (API 34) + NDK. Not yet wired to the native core, so the app
-layer builds but has no media source until `native-core/` is vendored.
-`./gradlew :app:assembleDebug` once a `local.properties` points at your SDK.
-```
-```
+Needs the Android SDK (API 34), NDK 27 and CMake 3.22; the native core
+(UxPlay, libplist, prebuilt OpenSSL libcrypto) is vendored under `native-core/`.
+Build with JDK 17–21 (Android Studio's bundled JBR works):
+`./gradlew :app:assembleRelease`. Release builds are much smoother than debug
+builds on the dongle; after installing, `adb shell cmd package compile -m
+speed-profile -f io.github.samparhizkar.lumen` warms it up further.
