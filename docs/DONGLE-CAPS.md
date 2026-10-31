@@ -2,7 +2,7 @@
 
 Device: `SEI700DHM` / model `Dongle R 4K` (SEI Robotics), Amlogic **S905Y4**,
 Android 14 (API 34), kernel 5.15 (GKI), **32-bit userspace** (`armeabi-v7a` only),
-adb over network `192.168.8.153:5555` / usb serial `GZ25040772204345`.
+adb over the network (port 5555) or USB.
 
 ## Root status — NOT rooted (decision: ship as a normal app)
 - Bootloader **locked**, verified-boot `green`, `secure=yes`.
