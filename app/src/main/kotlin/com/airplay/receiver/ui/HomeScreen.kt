@@ -64,7 +64,7 @@ fun HomeScreen(
             Spacer(Modifier.weight(1f))
             PillButton(
                 label = "Settings",
-                leading = "⚙",
+                leadingIcon = { GearIcon() },
                 onClick = onOpenSettings,
                 modifier = Modifier.focusRequester(settingsFocus),
             )
@@ -83,6 +83,7 @@ fun HomeScreen(
             Text(
                 text = headline(status),
                 fontSize = 40.sp,
+                lineHeight = 48.sp,
                 fontWeight = FontWeight.Bold,
                 color = Brand.Text,
                 letterSpacing = (-0.5).sp,

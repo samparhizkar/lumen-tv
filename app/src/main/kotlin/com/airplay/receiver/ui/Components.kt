@@ -1,6 +1,16 @@
 package com.airplay.receiver.ui
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathFillType
+import androidx.compose.ui.unit.Dp
+import androidx.tv.material3.LocalContentColor
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
@@ -192,6 +202,7 @@ fun PillButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     leading: String? = null,
+    leadingIcon: (@Composable () -> Unit)? = null,
     accent: Boolean = false,
 ) {
     Surface(
@@ -217,12 +228,50 @@ fun PillButton(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center,
         ) {
-            if (leading != null) {
+            if (leadingIcon != null) {
+                leadingIcon()
+                Spacer(Modifier.width(12.dp))
+            } else if (leading != null) {
                 Text(leading, fontSize = 20.sp)
                 Spacer(Modifier.width(10.dp))
             }
             Text(label, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
         }
+    }
+}
+
+/**
+ * A solid eight-tooth gear drawn on a Canvas, in the current content colour.
+ * Font gear glyphs (⚙) fall back to a thin, sun-like outline on Android TV.
+ */
+@Composable
+fun GearIcon(size: Dp = 22.dp) {
+    val color = LocalContentColor.current
+    Canvas(Modifier.size(size)) {
+        val c = Offset(this.size.width / 2f, this.size.height / 2f)
+        val outer = this.size.minDimension / 2f
+        val root = outer * 0.74f
+        val teeth = 8
+        val step = (2 * PI / teeth).toFloat()
+        val gear = Path().apply {
+            fillType = PathFillType.EvenOdd
+            for (i in 0 until teeth) {
+                val a = i * step
+                // root → tooth flank → flat tip → flank → root, tip narrower than base
+                val pts = listOf(
+                    root to a - step * 0.30f, outer to a - step * 0.17f,
+                    outer to a + step * 0.17f, root to a + step * 0.30f,
+                )
+                pts.forEachIndexed { j, (r, t) ->
+                    val x = c.x + r * cos(t)
+                    val y = c.y + r * sin(t)
+                    if (i == 0 && j == 0) moveTo(x, y) else lineTo(x, y)
+                }
+            }
+            close()
+            addOval(Rect(c, outer * 0.32f))
+        }
+        drawPath(gear, color)
     }
 }
 

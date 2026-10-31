@@ -62,10 +62,12 @@ fun SettingsScreen(
             Modifier
                 .fillMaxSize()
                 .widthIn(max = 980.dp)
-                .padding(horizontal = 96.dp, vertical = 56.dp)
-                .verticalScroll(rememberScrollState()),
+                // Scroll before padding: the viewport clips at its edge, and the
+                // title's glyphs overshoot their line box, so a padded viewport cut them.
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 96.dp, vertical = 56.dp),
         ) {
-            Text("Settings", fontSize = 40.sp, fontWeight = FontWeight.Bold, color = Brand.Text, letterSpacing = (-0.5).sp)
+            Text("Settings", fontSize = 40.sp, lineHeight = 48.sp, fontWeight = FontWeight.Bold, color = Brand.Text, letterSpacing = (-0.5).sp)
             Spacer(Modifier.height(6.dp))
             Text(
                 "Set up how this TV appears and behaves on your network",
