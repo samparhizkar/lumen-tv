@@ -1,4 +1,4 @@
-package com.airplay.receiver.ui
+package io.github.samparhizkar.lumen.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -155,7 +155,7 @@ fun SettingsScreen(
  * row-to-row D-pad traversal on the Settings list behind it.
  */
 @Composable
-private fun NameEditor(initial: String, onCommit: (String) -> Unit) {
+internal fun NameEditor(initial: String, onCommit: (String) -> Unit) {
     var draft by remember { mutableStateOf(initial) }
     val fieldFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { fieldFocus.requestFocus() } }

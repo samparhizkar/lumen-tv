@@ -1,4 +1,4 @@
-package com.airplay.receiver.net
+package io.github.samparhizkar.lumen.net
 
 import android.content.Context
 import android.net.nsd.NsdManager

@@ -1,4 +1,4 @@
-package com.airplay.receiver.service
+package io.github.samparhizkar.lumen.service
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -9,12 +9,12 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
-import com.airplay.receiver.HomeActivity
-import com.airplay.receiver.Prefs
-import com.airplay.receiver.ReceiverState
-import com.airplay.receiver.media.AudioPipeline
-import com.airplay.receiver.net.AirPlayCore
-import com.airplay.receiver.net.BonjourAdvertiser
+import io.github.samparhizkar.lumen.HomeActivity
+import io.github.samparhizkar.lumen.Prefs
+import io.github.samparhizkar.lumen.ReceiverState
+import io.github.samparhizkar.lumen.media.AudioPipeline
+import io.github.samparhizkar.lumen.net.AirPlayCore
+import io.github.samparhizkar.lumen.net.BonjourAdvertiser
 
 /**
  * Long-lived foreground service: owns the native AirPlay core and the mDNS
@@ -91,11 +91,11 @@ class AirPlayService : Service() {
         val mgr = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             mgr.createNotificationChannel(
-                NotificationChannel(CHAN, "AirPlay", NotificationManager.IMPORTANCE_LOW)
+                NotificationChannel(CHAN, "Receiver", NotificationManager.IMPORTANCE_LOW)
             )
         }
         return Notification.Builder(this, CHAN)
-            .setContentTitle("AirPlay Receiver")
+            .setContentTitle("Lumen")
             .setContentText("Ready to receive")
             .setSmallIcon(android.R.drawable.ic_media_play)
             .build()
@@ -106,6 +106,12 @@ class AirPlayService : Service() {
         private const val CHAN = "airplay"
         private const val NOTIF_ID = 1
         const val PORT = 7000
+
+        /** Re-advertises under a new name: the core and Bonjour take it at start. */
+        fun restart(ctx: Context) {
+            ctx.stopService(Intent(ctx, AirPlayService::class.java))
+            start(ctx)
+        }
 
         fun start(ctx: Context) {
             val i = Intent(ctx, AirPlayService::class.java)

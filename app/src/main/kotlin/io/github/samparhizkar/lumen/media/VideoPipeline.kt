@@ -1,4 +1,4 @@
-package com.airplay.receiver.media
+package io.github.samparhizkar.lumen.media
 
 import android.media.MediaCodec
 import android.media.MediaCodecInfo

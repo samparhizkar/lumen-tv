@@ -1,5 +1,6 @@
-package com.airplay.receiver.ui
+package io.github.samparhizkar.lumen.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.*
 import androidx.compose.animation.fadeIn
@@ -25,8 +26,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
 import androidx.tv.material3.Text
-import com.airplay.receiver.ReceiverState
+import io.github.samparhizkar.lumen.ReceiverState
 
 @Composable
 fun HomeScreen(
@@ -34,14 +36,28 @@ fun HomeScreen(
     onOpenSettings: () -> Unit,
     needsOverlayPermission: Boolean = false,
     onAllowOverlay: () -> Unit = {},
+    needsRoom: Boolean = false,
+    onPickName: (String) -> Unit = {},
 ) {
     val settingsFocus = remember { FocusRequester() }
     val allowFocus = remember { FocusRequester() }
-    val kind = statusKind(status, needsOverlayPermission)
-    // Land on the one thing to do next: "Allow" during setup, else Settings.
-    LaunchedEffect(kind == Kind.SETUP) {
-        runCatching { (if (kind == Kind.SETUP) allowFocus else settingsFocus).requestFocus() }
+    val roomFocus = remember { FocusRequester() }
+    var namingOther by remember { mutableStateOf(false) }
+    val kind = statusKind(status, needsOverlayPermission, needsRoom)
+    // Land on the one thing to do next: a room, then "Allow" during setup, else Settings.
+    // Wait out the card fade first: focusing the next card's button while the press
+    // that picked a room is still being handled clicked it too.
+    LaunchedEffect(kind) {
+        delay(400)
+        runCatching {
+            when (kind) {
+                Kind.ROOM -> roomFocus.requestFocus()
+                Kind.SETUP -> allowFocus.requestFocus()
+                else -> settingsFocus.requestFocus()
+            }
+        }
     }
+    BackHandler(enabled = namingOther) { namingOther = false }
 
     ScreenBackground {
         val connected = status is ReceiverState.Status.Connected
@@ -58,9 +74,9 @@ fun HomeScreen(
                 .padding(start = 72.dp, end = 64.dp, top = 36.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("Beam", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Brand.Text, letterSpacing = 0.5.sp)
+            Text("Lumen", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Brand.Text, letterSpacing = 0.5.sp)
             Spacer(Modifier.width(12.dp))
-            Text("Beam your screen to any TV", fontSize = 15.sp, color = Brand.TextMuted)
+            Text("Your screen, on any TV", fontSize = 15.sp, color = Brand.TextMuted)
             Spacer(Modifier.weight(1f))
             PillButton(
                 label = "Settings",
@@ -108,14 +124,16 @@ fun HomeScreen(
             // card's Connected and crashed.
             AnimatedContent(
                 targetState = status,
-                contentKey = { statusKind(it, needsOverlayPermission) },
+                contentKey = { statusKind(it, needsOverlayPermission, needsRoom) },
                 transitionSpec = { fadeIn(tween(350)) togetherWith fadeOut(tween(200)) },
                 label = "hero",
             ) { shown ->
                 when (shown) {
-                    is ReceiverState.Status.Ready ->
-                        if (needsOverlayPermission) PermissionCard(onAllow = onAllowOverlay, focus = allowFocus)
-                        else InstructionCard(deviceName = shown.deviceName)
+                    is ReceiverState.Status.Ready -> when {
+                        needsRoom -> RoomCard(onPick = onPickName, onOther = { namingOther = true }, focus = roomFocus)
+                        needsOverlayPermission -> PermissionCard(onAllow = onAllowOverlay, focus = allowFocus)
+                        else -> InstructionCard(deviceName = shown.deviceName)
+                    }
                     is ReceiverState.Status.Connected -> ConnectedCard(shown)
                     is ReceiverState.Status.Error -> MessageCard(shown.message, danger = true)
                     ReceiverState.Status.Starting -> MessageCard("Getting ready to receive…", danger = false)
@@ -123,19 +141,72 @@ fun HomeScreen(
             }
         }
     }
+
+    if (namingOther) {
+        NameEditor(
+            initial = "",
+            onCommit = { entered ->
+                namingOther = false
+                if (entered.isNotBlank()) onPickName(entered.trim())
+            },
+        )
+    }
 }
 
-private enum class Kind { STARTING, SETUP, READY, CONNECTED, ERROR }
+private enum class Kind { STARTING, ROOM, SETUP, READY, CONNECTED, ERROR }
 
-private fun statusKind(s: ReceiverState.Status, needsOverlayPermission: Boolean) = when (s) {
+private fun statusKind(s: ReceiverState.Status, needsOverlayPermission: Boolean, needsRoom: Boolean) = when (s) {
     ReceiverState.Status.Starting -> Kind.STARTING
-    is ReceiverState.Status.Ready -> if (needsOverlayPermission) Kind.SETUP else Kind.READY
+    is ReceiverState.Status.Ready -> when {
+        needsRoom -> Kind.ROOM
+        needsOverlayPermission -> Kind.SETUP
+        else -> Kind.READY
+    }
     is ReceiverState.Status.Connected -> Kind.CONNECTED
     is ReceiverState.Status.Error -> Kind.ERROR
 }
 
 /**
- * First-run step: without "display over other apps", Android won't let Beam
+ * First-run step: name the TV after its room, as Apple TVs are named, so it's
+ * obvious in the AirPlay menu. "TV" keeps it apart from a HomePod in the same room.
+ */
+@Composable
+private fun RoomCard(onPick: (String) -> Unit, onOther: () -> Unit, focus: FocusRequester) {
+    Column(
+        Modifier
+            .widthIn(max = 900.dp)
+            .clip(Shapes.Card)
+            .background(Brand.Surface.copy(alpha = 0.72f))
+            .padding(horizontal = 40.dp, vertical = 26.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text("Which room is this TV in?", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = Brand.Text)
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "It's how this TV will appear in Screen Mirroring and AirPlay.",
+            fontSize = 16.sp,
+            color = Brand.TextDim,
+            textAlign = TextAlign.Center,
+        )
+        Spacer(Modifier.height(20.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            ROOMS.forEachIndexed { i, room ->
+                PillButton(
+                    label = room,
+                    onClick = { onPick("$room TV") },
+                    modifier = if (i == 0) Modifier.focusRequester(focus) else Modifier,
+                    horizontalPadding = 24.dp,
+                )
+            }
+            PillButton(label = "Other…", onClick = onOther, horizontalPadding = 24.dp)
+        }
+    }
+}
+
+private val ROOMS = listOf("Living Room", "Bedroom", "Kitchen", "Office")
+
+/**
+ * First-run step: without "display over other apps", Android won't let Lumen
  * bring the mirror screen forward while another app is on the TV.
  */
 @Composable
@@ -156,7 +227,7 @@ private fun PermissionCard(onAllow: () -> Unit, focus: FocusRequester) {
         )
         Spacer(Modifier.height(8.dp))
         Text(
-            "Allow Beam to appear over other apps, so your screen shows up the " +
+            "Allow Lumen to appear over other apps, so your screen shows up the " +
                 "moment you connect, even while you're watching something else.",
             fontSize = 16.sp,
             color = Brand.TextDim,
@@ -353,10 +424,10 @@ private fun AirPlayGlyph(active: Boolean, connected: Boolean, error: Boolean) {
 }
 
 private fun headline(s: ReceiverState.Status): String = when (s) {
-    ReceiverState.Status.Starting -> "Beam"
+    ReceiverState.Status.Starting -> "Lumen"
     is ReceiverState.Status.Ready -> s.deviceName
     is ReceiverState.Status.Connected -> s.sender
-    is ReceiverState.Status.Error -> "Beam"
+    is ReceiverState.Status.Error -> "Lumen"
 }
 
 private fun statusLine(s: ReceiverState.Status): String = when (s) {

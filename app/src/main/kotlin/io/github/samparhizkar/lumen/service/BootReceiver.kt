@@ -1,4 +1,4 @@
-package com.airplay.receiver.service
+package io.github.samparhizkar.lumen.service
 
 import android.content.BroadcastReceiver
 import android.content.Context

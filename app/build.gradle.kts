@@ -5,15 +5,15 @@ plugins {
 }
 
 android {
-    namespace = "com.airplay.receiver"
+    namespace = "io.github.samparhizkar.lumen"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.airplay.receiver"
+        applicationId = "io.github.samparhizkar.lumen"
         minSdk = 28          // Sony dongle is API 34; keep headroom for other boxes
         targetSdk = 34
-        versionCode = 3
-        versionName = "0.3.0"
+        versionCode = 4
+        versionName = "0.4.0"
         ndk {
             // Homatics dongle userspace is 32-bit only.
             abiFilters += listOf("armeabi-v7a")

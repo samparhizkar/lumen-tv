@@ -1,4 +1,4 @@
-package com.airplay.receiver.media
+package io.github.samparhizkar.lumen.media
 
 /**
  * Adaptive jitter buffer for mirrored video.

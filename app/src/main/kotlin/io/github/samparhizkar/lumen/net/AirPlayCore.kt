@@ -1,4 +1,4 @@
-package com.airplay.receiver.net
+package io.github.samparhizkar.lumen.net
 
 /**
  * JNI bridge to the reused native protocol/crypto core (RTSP server, pairing,

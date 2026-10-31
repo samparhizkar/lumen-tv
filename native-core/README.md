@@ -1,7 +1,7 @@
 # native-core — reused AirPlay protocol/crypto core
 
 This directory holds the C protocol core that the Kotlin app wraps over JNI
-(`com.airplay.receiver.net.AirPlayCore`). It is **reused, not rewritten** — see
+(`io.github.samparhizkar.lumen.net.AirPlayCore`). It is **reused, not rewritten** — see
 the architecture decision in the top-level README.
 
 ## Why reused

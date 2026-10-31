@@ -4,7 +4,7 @@
  * key with the receiver's public key (SDP rsaaeskey). Both use the long-public
  * AirPort Express key every open-source AirPlay 1 receiver ships.
  *
- * Beam uses this for macOS audio-only AirPlay: Music wraps its key with
+ * Lumen uses this for macOS audio-only AirPlay: Music wraps its key with
  * FairPlay v2 (fpaeskey) otherwise, which no open implementation can unwrap.
  */
 #ifndef RAOP_RSA_H

@@ -41,7 +41,7 @@
 #elif defined (TARGET_OS_WIN32)
 #define TARGET_RT_LITTLE_ENDIAN 1
 #elif defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
-/* Beam: ARM (Android) is little-endian too; upstream only lists x86 */
+/* Lumen: ARM (Android) is little-endian too; upstream only lists x86 */
 #define TARGET_RT_LITTLE_ENDIAN 1
 #endif
 

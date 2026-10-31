@@ -1,4 +1,4 @@
-package com.airplay.receiver
+package io.github.samparhizkar.lumen
 
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow

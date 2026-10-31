@@ -1,4 +1,4 @@
-package com.airplay.receiver.ui
+package io.github.samparhizkar.lumen.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize

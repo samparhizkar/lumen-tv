@@ -1,4 +1,4 @@
-package com.airplay.receiver.ui
+package io.github.samparhizkar.lumen.ui
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.Canvas
@@ -204,6 +204,7 @@ fun PillButton(
     leading: String? = null,
     leadingIcon: (@Composable () -> Unit)? = null,
     accent: Boolean = false,
+    horizontalPadding: Dp = 30.dp,
 ) {
     Surface(
         onClick = onClick,
@@ -224,7 +225,7 @@ fun PillButton(
         ),
     ) {
         Row(
-            Modifier.padding(horizontal = 30.dp, vertical = 15.dp),
+            Modifier.padding(horizontal = horizontalPadding, vertical = 15.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center,
         ) {
@@ -235,7 +236,7 @@ fun PillButton(
                 Text(leading, fontSize = 20.sp)
                 Spacer(Modifier.width(10.dp))
             }
-            Text(label, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+            Text(label, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
         }
     }
 }

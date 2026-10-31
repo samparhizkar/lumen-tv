@@ -1,17 +1,17 @@
-package com.airplay.receiver.service
+package io.github.samparhizkar.lumen.service
 
 import android.content.Context
 import android.content.Intent
 import android.os.SystemClock
 import android.util.Log
-import com.airplay.receiver.MirrorActivity
+import io.github.samparhizkar.lumen.MirrorActivity
 
 /**
  * Router between the service-owned native session and MirrorActivity.
  *
  * The core starts streaming as soon as a sender connects, but the activity can
  * appear a moment later — or, if Android blocked the launch, only once the user
- * has let Beam display over other apps. So the bridge keeps what a newly
+ * has let Lumen display over other apps. So the bridge keeps what a newly
  * attached activity needs to start decoding mid-stream:
  *  - the latest video config, and
  *  - every video access unit since the most recent keyframe (one GOP), because
@@ -57,7 +57,7 @@ object MirrorActivityBridge {
             appContext = app
             lastLaunchMs = SystemClock.elapsedRealtime()
         }
-        // Android 14 blocks this from a background service unless Beam may display
+        // Android 14 blocks this from a background service unless Lumen may display
         // over other apps; the home screen asks the user for that permission.
         runCatching {
             app.startActivity(

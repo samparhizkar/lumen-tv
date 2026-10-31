@@ -1,4 +1,4 @@
-package com.airplay.receiver
+package io.github.samparhizkar.lumen
 
 import android.content.Intent
 import android.net.Uri
@@ -11,11 +11,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import com.airplay.receiver.service.AirPlayService
-import com.airplay.receiver.ui.AirPlayTheme
-import com.airplay.receiver.ui.HomeScreen
-import com.airplay.receiver.ui.SettingsModel
-import com.airplay.receiver.ui.SettingsScreen
+import io.github.samparhizkar.lumen.service.AirPlayService
+import io.github.samparhizkar.lumen.ui.AirPlayTheme
+import io.github.samparhizkar.lumen.ui.HomeScreen
+import io.github.samparhizkar.lumen.ui.SettingsModel
+import io.github.samparhizkar.lumen.ui.SettingsScreen
 import java.net.Inet4Address
 import java.net.NetworkInterface
 
@@ -23,7 +23,7 @@ import java.net.NetworkInterface
 class HomeActivity : ComponentActivity() {
 
     /**
-     * Whether Beam may display over other apps. Without it Android 14 blocks the
+     * Whether Lumen may display over other apps. Without it Android 14 blocks the
      * background service from opening the mirror screen, so a connected sender
      * would stream to nothing. Re-checked on every resume (the user grants it in
      * system settings and comes back).
@@ -38,6 +38,7 @@ class HomeActivity : ComponentActivity() {
         setContent {
             AirPlayTheme {
                 var screen by remember { mutableStateOf(Screen.HOME) }
+                var needsRoom by remember { mutableStateOf(!prefs.hasChosenName) }
                 val status by ReceiverState.status.collectAsState()
 
                 when (screen) {
@@ -46,6 +47,12 @@ class HomeActivity : ComponentActivity() {
                         needsOverlayPermission = !canOpenOverOtherApps,
                         onAllowOverlay = ::openOverlaySettings,
                         onOpenSettings = { screen = Screen.SETTINGS },
+                        needsRoom = needsRoom,
+                        onPickName = { name ->
+                            prefs.deviceName = name
+                            needsRoom = false
+                            AirPlayService.restart(this@HomeActivity)
+                        },
                     )
                     Screen.SETTINGS -> {
                         // Built once per visit: localIp() walks every network
@@ -62,7 +69,10 @@ class HomeActivity : ComponentActivity() {
                         }
                         SettingsScreen(
                             model = model,
-                            onNameChange = { prefs.deviceName = it },
+                            onNameChange = {
+                                prefs.deviceName = it
+                                AirPlayService.restart(this@HomeActivity)
+                            },
                             onAutoStart = { prefs.autoStart = it },
                             onRequirePin = { prefs.requirePin = it },
                             onAccurateColors = { prefs.accurateColors = it },
@@ -79,7 +89,7 @@ class HomeActivity : ComponentActivity() {
         canOpenOverOtherApps = Settings.canDrawOverlays(this)
     }
 
-    /** Opens the system "Display over other apps" toggle for Beam. */
+    /** Opens the system "Display over other apps" toggle for Lumen. */
     private fun openOverlaySettings() {
         val pkg = Uri.parse("package:$packageName")
         val candidates = listOf(

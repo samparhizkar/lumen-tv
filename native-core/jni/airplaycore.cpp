@@ -306,7 +306,7 @@ extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *) {
 }
 
 extern "C" JNIEXPORT jobject JNICALL
-Java_com_airplay_receiver_net_AirPlayCore_nativeStart(JNIEnv *env, jobject thiz,
+Java_io_github_samparhizkar_lumen_net_AirPlayCore_nativeStart(JNIEnv *env, jobject thiz,
                                                       jstring deviceName, jint port) {
     g_self = env->NewGlobalRef(thiz);
     jclass cls = env->GetObjectClass(thiz);
@@ -441,7 +441,7 @@ Java_com_airplay_receiver_net_AirPlayCore_nativeStart(JNIEnv *env, jobject thiz,
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_airplay_receiver_net_AirPlayCore_nativeStop(JNIEnv *env, jobject thiz) {
+Java_io_github_samparhizkar_lumen_net_AirPlayCore_nativeStop(JNIEnv *env, jobject thiz) {
     if (g_raop) { raop_stop_httpd(g_raop); raop_destroy(g_raop); g_raop = nullptr; }
     if (g_dnssd) { dnssd_destroy(g_dnssd); g_dnssd = nullptr; }
     alac_reset(0);

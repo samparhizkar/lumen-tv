@@ -1,4 +1,4 @@
-package com.airplay.receiver
+package io.github.samparhizkar.lumen
 
 import android.app.Activity
 import android.graphics.SurfaceTexture
@@ -10,9 +10,9 @@ import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.TextureView
 import android.view.WindowManager
-import com.airplay.receiver.media.VideoPipeline
-import com.airplay.receiver.service.AirPlayService
-import com.airplay.receiver.service.MirrorActivityBridge
+import io.github.samparhizkar.lumen.media.VideoPipeline
+import io.github.samparhizkar.lumen.service.AirPlayService
+import io.github.samparhizkar.lumen.service.MirrorActivityBridge
 import java.nio.ByteBuffer
 
 /**
@@ -101,7 +101,7 @@ class MirrorActivity : Activity() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) add(WifiManager.WIFI_MODE_FULL_LOW_LATENCY)
         }
         for (mode in modes) {
-            wifi.createWifiLock(mode, "beam:mirror:$mode").apply {
+            wifi.createWifiLock(mode, "lumen:mirror:$mode").apply {
                 setReferenceCounted(false)
                 if (runCatching { acquire() }.isSuccess) wifiLocks += this
             }
