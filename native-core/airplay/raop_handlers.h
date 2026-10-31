@@ -552,12 +552,14 @@ raop_handler_fpsetup(raop_conn_t *conn,
 
     data = (unsigned char *) http_request_get_data(request, &datalen);
     if (datalen == 16) {
-        if (data[4] != 0x03) {
-            logger_log(raop->logger, LOGGER_ERR, " Client sent an unsupported type 0x%02x FairPlay challenge:\n"
-            "Only type 0x03 can be handled using publically-available information", data[4]);
+        /* type 0x03: screen mirroring / iOS; type 0x02: macOS audio-only (classic RAOP) */
+        if (data[4] != 0x03 && data[4] != 0x02) {
+            logger_log(raop->logger, LOGGER_ERR, " Client sent an unsupported type 0x%02x FairPlay challenge", data[4]);
             http_response_init(response, "RTSP/1.0", 501, "Not Implemented");
             return;
-        }  
+        }
+        logger_log(raop->logger, LOGGER_INFO, "fp-setup type 0x%02x, mode %d", data[4], data[14]);
+        conn->fp_type = data[4];
 
         *response_data = calloc(142, sizeof(char));
         if (*response_data) {
@@ -593,7 +595,232 @@ raop_handler_options(raop_conn_t *conn,
                      http_request_t *request, http_response_t *response,
                      char **response_data, int *response_datalen)
 {
-    http_response_add_header(response, "Public", "SETUP, RECORD, FLUSH, TEARDOWN, OPTIONS, GET_PARAMETER, SET_PARAMETER");
+    http_response_add_header(response, "Public", "ANNOUNCE, SETUP, RECORD, FLUSH, TEARDOWN, OPTIONS, GET_PARAMETER, SET_PARAMETER");
+}
+
+/* base64 (SDP values may drop the '=' padding) -> bytes; returns length or -1 */
+static int
+sdp_base64_decode(const char *in, size_t inlen, unsigned char *out, size_t outmax)
+{
+    char buf[512];
+    if (inlen == 0 || inlen + 4 > sizeof(buf)) {
+        return -1;
+    }
+    memcpy(buf, in, inlen);
+    size_t padded = inlen;
+    while (padded % 4) {
+        buf[padded++] = '=';
+    }
+    buf[padded] = '\0';
+    unsigned char tmp[384];
+    int n = EVP_DecodeBlock(tmp, (const unsigned char *) buf, (int) padded);
+    if (n < 0) {
+        return -1;
+    }
+    /* EVP_DecodeBlock counts padding as zero bytes: drop them */
+    for (size_t i = padded; i > 0 && buf[i - 1] == '='; i--) {
+        n--;
+    }
+    if (n > (int) outmax) {
+        return -1;
+    }
+    memcpy(out, tmp, n);
+    return n;
+}
+
+/* value of an SDP attribute line "a=<name>:<value>", trimmed; NULL if absent */
+static const char *
+sdp_attribute(const char *sdp, int sdplen, const char *name, size_t *len)
+{
+    size_t namelen = strlen(name);
+    const char *end = sdp + sdplen;
+    for (const char *line = sdp; line < end; ) {
+        const char *eol = memchr(line, '\n', end - line);
+        if (!eol) {
+            eol = end;
+        }
+        if ((size_t) (eol - line) > namelen + 3 && !strncmp(line, "a=", 2) &&
+            !strncmp(line + 2, name, namelen) && line[2 + namelen] == ':') {
+            const char *val = line + 3 + namelen;
+            const char *vend = eol;
+            while (vend > val && isspace((unsigned char) vend[-1])) {
+                vend--;
+            }
+            *len = vend - val;
+            return val;
+        }
+        line = eol + 1;
+    }
+    return NULL;
+}
+
+/*
+ * ANNOUNCE (classic RAOP, as macOS sends for audio-only AirPlay after a type-2
+ * fp-setup): an SDP body naming the codec and carrying the FairPlay-wrapped AES
+ * key. The key is unwrapped here; the following SETUP starts the stream with it.
+ */
+static void
+raop_handler_announce(raop_conn_t *conn,
+                      http_request_t *request, http_response_t *response,
+                      char **response_data, int *response_datalen)
+{
+    raop_t *raop = conn->raop;
+    int sdplen = 0;
+    const char *sdp = http_request_get_data(request, &sdplen);
+    size_t len = 0;
+    const char *val;
+
+    conn->have_announce = false;
+    if (!sdp || sdplen <= 0) {
+        http_response_init(response, "RTSP/1.0", 400, "Bad Request");
+        return;
+    }
+
+    unsigned char ct = 0;
+    unsigned short spf = 352;
+    if ((val = sdp_attribute(sdp, sdplen, "rtpmap", &len))) {
+        if (memmem(val, len, "AppleLossless", 13)) {
+            ct = 2;
+        } else if (memmem(val, len, "mpeg4-generic", 13)) {
+            const char *fmtp = sdp_attribute(sdp, sdplen, "fmtp", &len);
+            ct = (fmtp && (memmem(fmtp, len, "eld", 3) || memmem(fmtp, len, "ELD", 3))) ? 8 : 4;
+            spf = (ct == 8) ? 480 : 1024;
+        }
+    }
+    if (ct == 2 && (val = sdp_attribute(sdp, sdplen, "fmtp", &len))) {
+        /* "96 352 0 16 40 10 14 2 255 0 0 44100": the second field is frames per packet */
+        unsigned int pt = 0, frames = 0;
+        if (sscanf(val, "%u %u", &pt, &frames) == 2 && frames > 0 && frames <= 4096) {
+            spf = (unsigned short) frames;
+        }
+    }
+    if (!ct) {
+        logger_log(raop->logger, LOGGER_ERR, "ANNOUNCE: unsupported audio codec");
+        http_response_init(response, "RTSP/1.0", 415, "Unsupported Media Type");
+        return;
+    }
+
+    unsigned char aesiv[16] = { 0 };
+    unsigned char aeskey[16] = { 0 };
+    unsigned char ekey[72] = { 0 };
+    if (!(val = sdp_attribute(sdp, sdplen, "aesiv", &len)) ||
+        sdp_base64_decode(val, len, aesiv, sizeof(aesiv)) != 16) {
+        logger_log(raop->logger, LOGGER_ERR, "ANNOUNCE: missing or bad aesiv (unencrypted RAOP is not supported)");
+        http_response_init(response, "RTSP/1.0", 400, "Bad Request");
+        return;
+    }
+    unsigned char rsakey[256];
+    if ((val = sdp_attribute(sdp, sdplen, "rsaaeskey", &len))) {
+        int n = sdp_base64_decode(val, len, rsakey, sizeof(rsakey));
+        if (n <= 0 || raop_rsa_decrypt_aeskey(rsakey, (size_t) n, aeskey) != 0) {
+            logger_log(raop->logger, LOGGER_ERR, "ANNOUNCE: could not unwrap rsaaeskey (len %d)", n);
+            http_response_init(response, "RTSP/1.0", 400, "Bad Request");
+            return;
+        }
+        logger_log(raop->logger, LOGGER_INFO, "ANNOUNCE: AES key from rsaaeskey");
+    } else if ((val = sdp_attribute(sdp, sdplen, "fpaeskey", &len))) {
+        if (conn->fp_type == 0x02) {
+            /* A Mac that saw our _airplay advert: its FairPlay v2 key can't be unwrapped
+             * (playfair yields a wrong key), so refuse rather than play noise. The
+             * "<name> Speaker" advert (RSA, see BonjourAdvertiser) is the one that works. */
+            logger_log(raop->logger, LOGGER_ERR, "ANNOUNCE: FairPlay v2 key not supported; use the Speaker entry");
+            http_response_init(response, "RTSP/1.0", 501, "Not Implemented");
+            return;
+        }
+        int n = sdp_base64_decode(val, len, ekey, sizeof(ekey));
+        if (n != 72 || fairplay_decrypt(conn->fairplay, ekey, aeskey) != 0) {
+            logger_log(raop->logger, LOGGER_ERR, "ANNOUNCE: could not unwrap fpaeskey (len %d)", n);
+            http_response_init(response, "RTSP/1.0", 400, "Bad Request");
+            return;
+        }
+    } else {
+        logger_log(raop->logger, LOGGER_ERR, "ANNOUNCE: no rsaaeskey or fpaeskey");
+        http_response_init(response, "RTSP/1.0", 400, "Bad Request");
+        return;
+    }
+
+    memcpy(conn->announce_aeskey, aeskey, 16);
+    memcpy(conn->announce_aesiv, aesiv, 16);
+    conn->announce_ct = ct;
+    conn->announce_spf = spf;
+    conn->have_announce = true;
+    const char *user_agent = http_request_get_header(request, "User-Agent");
+    logger_log(raop->logger, LOGGER_INFO, "ANNOUNCE from %s: ct=%d spf=%d, key unwrapped",
+               user_agent ? user_agent : "?", ct, spf);
+}
+
+/* integer value of "<name>=<n>" inside an RTSP Transport header, or 0 */
+static unsigned short
+transport_port(const char *transport, const char *name)
+{
+    size_t namelen = strlen(name);
+    for (const char *p = transport; (p = strstr(p, name)); p += namelen) {
+        if ((p == transport || p[-1] == ';') && p[namelen] == '=') {
+            long v = strtol(p + namelen + 1, NULL, 10);
+            return (v > 0 && v < 65536) ? (unsigned short) v : 0;
+        }
+    }
+    return 0;
+}
+
+/*
+ * SETUP of classic RAOP: no plist, just a Transport header with the sender's
+ * control and timing ports. Starts NTP timing and the audio RTP stream with the
+ * key from ANNOUNCE and answers with our ports in the same header form.
+ */
+static void
+raop_handler_setup_classic(raop_conn_t *conn, http_request_t *request, http_response_t *response,
+                           const char *transport)
+{
+    raop_t *raop = conn->raop;
+    if (!conn->have_announce) {
+        logger_log(raop->logger, LOGGER_ERR, "classic SETUP without a usable ANNOUNCE");
+        http_response_init(response, "RTSP/1.0", 455, "Method Not Valid In This State");
+        return;
+    }
+
+    unsigned short remote_cport = transport_port(transport, "control_port");
+    unsigned short timing_rport = transport_port(transport, "timing_port");
+    logger_log(raop->logger, LOGGER_DEBUG, "classic SETUP Transport: %s", transport);
+
+    char remote[40] = { 0 };
+    utils_ipaddress_to_string(conn->remotelen, conn->remote, conn->zone_id, remote, (int) sizeof(remote));
+
+    if (conn->raop_rtp) {
+        raop_rtp_destroy(conn->raop_rtp);
+        conn->raop_rtp = NULL;
+    }
+    if (conn->raop_ntp) {
+        raop_ntp_destroy(conn->raop_ntp);
+        conn->raop_ntp = NULL;
+    }
+    timing_protocol_t time_protocol = TP_UNSPECIFIED;
+    unsigned short timing_lport = raop->timing_lport;
+    conn->raop_ntp = raop_ntp_init(raop->logger, &raop->callbacks, remote, conn->remotelen,
+                                   timing_rport, &time_protocol);
+    raop_ntp_start(conn->raop_ntp, &timing_lport);
+    conn->raop_rtp = raop_rtp_init(raop->logger, &raop->callbacks, conn->raop_ntp, remote, conn->remotelen,
+                                   conn->announce_aeskey, conn->announce_aesiv);
+
+    unsigned char ct = conn->announce_ct;
+    unsigned short spf = conn->announce_spf;
+    unsigned int sr = AUDIO_SAMPLE_RATE;
+    if (raop->callbacks.audio_get_format) {
+        uint64_t audioFormat = 0;
+        bool usingScreen = false, isMedia = true;
+        raop->callbacks.audio_get_format(raop->callbacks.cls, &ct, &spf, &usingScreen, &isMedia, &audioFormat);
+    }
+    unsigned short cport = raop->control_lport, dport = raop->data_lport;
+    raop_rtp_start_audio(conn->raop_rtp, &remote_cport, &cport, &dport, &ct, &sr);
+
+    char reply[160];
+    snprintf(reply, sizeof(reply), "RTP/AVP/UDP;unicast;mode=record;server_port=%u;control_port=%u;timing_port=%u",
+             dport, cport, timing_lport);
+    http_response_add_header(response, "Transport", reply);
+    http_response_add_header(response, "Session", "1");
+    http_response_add_header(response, "Audio-Jack-Status", "connected; type=analog");
+    logger_log(raop->logger, LOGGER_INFO, "classic RAOP audio started: data %u control %u timing %u (remote control %u timing %u)",
+               dport, cport, timing_lport, remote_cport, timing_rport);
 }
 
 static void
@@ -612,6 +839,16 @@ raop_handler_setup(raop_conn_t *conn,
 
     dacp_id = http_request_get_header(request, "DACP-ID");
     active_remote_header = http_request_get_header(request, "Active-Remote");
+
+    /* classic RAOP: a Transport header and no binary plist body */
+    const char *transport = http_request_get_header(request, "Transport");
+    if (transport && !(data_len >= 6 && !memcmp(data, "bplist", 6))) {
+        raop_handler_setup_classic(conn, request, response, transport);
+        if (dacp_id && active_remote_header && conn->raop_rtp) {
+            raop_rtp_remote_control_id(conn->raop_rtp, dacp_id, active_remote_header);
+        }
+        return;
+    }
 
     if (dacp_id && active_remote_header) {
         logger_log(raop->logger, LOGGER_DEBUG, "DACP-ID: %s", dacp_id);

@@ -101,17 +101,23 @@ fun HomeScreen(
 
             Spacer(Modifier.height(22.dp))
 
+            // Animate on the status itself (keyed by kind) and render from the
+            // lambda's value: the outgoing card keeps composing during its fade,
+            // and reading the *current* status there cast a new Ready to the old
+            // card's Connected and crashed.
             AnimatedContent(
-                targetState = kind,
+                targetState = status,
+                contentKey = { statusKind(it, needsOverlayPermission) },
                 transitionSpec = { fadeIn(tween(350)) togetherWith fadeOut(tween(200)) },
                 label = "hero",
-            ) { kind ->
-                when (kind) {
-                    Kind.SETUP -> PermissionCard(onAllow = onAllowOverlay, focus = allowFocus)
-                    Kind.READY -> InstructionCard(deviceName = (status as? ReceiverState.Status.Ready)?.deviceName ?: "this TV")
-                    Kind.CONNECTED -> ConnectedCard(status as ReceiverState.Status.Connected)
-                    Kind.ERROR -> MessageCard((status as? ReceiverState.Status.Error)?.message ?: "Something went wrong", danger = true)
-                    Kind.STARTING -> MessageCard("Getting ready to receive…", danger = false)
+            ) { shown ->
+                when (shown) {
+                    is ReceiverState.Status.Ready ->
+                        if (needsOverlayPermission) PermissionCard(onAllow = onAllowOverlay, focus = allowFocus)
+                        else InstructionCard(deviceName = shown.deviceName)
+                    is ReceiverState.Status.Connected -> ConnectedCard(shown)
+                    is ReceiverState.Status.Error -> MessageCard(shown.message, danger = true)
+                    ReceiverState.Status.Starting -> MessageCard("Getting ready to receive…", danger = false)
                 }
             }
         }

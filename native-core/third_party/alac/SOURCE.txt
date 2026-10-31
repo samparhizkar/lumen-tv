@@ -1,0 +1,3 @@
+upstream: https://github.com/macosforge/alac @ c38887c5c5e64a4b31108733bd79ca9b2496d987 (decoder only)
+Local change (Beam): EndianPortable.c detects little-endian via __BYTE_ORDER__ so
+the decoder byte-swaps the big-endian cookie on ARM (upstream only handled x86).

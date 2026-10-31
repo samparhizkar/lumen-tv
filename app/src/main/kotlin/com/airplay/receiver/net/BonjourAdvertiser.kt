@@ -17,7 +17,7 @@ import android.util.Log
  */
 class BonjourAdvertiser(context: Context) {
     private val nsd = context.getSystemService(Context.NSD_SERVICE) as NsdManager
-    private var listener: NsdManager.RegistrationListener? = null
+    private val listeners = mutableListOf<NsdManager.RegistrationListener>()
 
     private var baseName = "AirPlay"
     private var port = 0
@@ -28,6 +28,43 @@ class BonjourAdvertiser(context: Context) {
         this.port = port
         this.txt = txt
         tryRegister(deviceName, attempt = 0)
+        registerRaop(deviceName)
+    }
+
+    /**
+     * A classic AirTunes speaker, `<MAC>@<name> Speaker._raop._tcp`, for a Mac's
+     * Music app. If a Mac sees `_airplay._tcp` under the same device id, it wraps
+     * the audio key with FairPlay v2 (fpaeskey), which no open implementation can
+     * unwrap, whatever the feature bits say. So the speaker gets its own id (first
+     * octet ^ 0x04, mirrored in raop_set_dnssd for the Apple-Response) and no
+     * `ft`/`pk`, and the Mac treats it as an AirPort-style speaker: RSA
+     * (rsaaeskey, `et=0,1`), as with shairport-sync. Mirroring keeps `_airplay._tcp`.
+     */
+    private fun registerRaop(name: String) {
+        val mac = txt["deviceid"]?.split(":")?.map { it.toInt(16) }?.takeIf { it.size == 6 }
+            ?.mapIndexed { i, b -> if (i == 0) b xor 0x04 else b }
+            ?.joinToString("") { "%02X".format(it) } ?: return
+        val raopTxt = linkedMapOf(
+            "txtvers" to "1", "ch" to "2", "cn" to "0,1", "et" to "0,1", "ek" to "1",
+            "md" to "0,1,2", "da" to "true", "sv" to "false", "sr" to "44100", "ss" to "16",
+            "tp" to "UDP", "vn" to "65537", "vs" to (txt["srcvers"] ?: "220.68"),
+            "am" to (txt["model"] ?: "AppleTV3,2"), "sf" to (txt["flags"] ?: "0x4"),
+            "pw" to "false",
+        )
+        val info = NsdServiceInfo().apply {
+            serviceName = "$mac@$name Speaker"
+            serviceType = "_raop._tcp."
+            setPort(this@BonjourAdvertiser.port)
+            raopTxt.forEach { (k, v) -> setAttribute(k, v) }
+        }
+        val l = object : NsdManager.RegistrationListener {
+            override fun onServiceRegistered(s: NsdServiceInfo) { Log.i(TAG, "registered raop '${s.serviceName}'") }
+            override fun onRegistrationFailed(s: NsdServiceInfo, code: Int) { Log.e(TAG, "raop register failed code=$code") }
+            override fun onServiceUnregistered(s: NsdServiceInfo) {}
+            override fun onUnregistrationFailed(s: NsdServiceInfo, code: Int) {}
+        }
+        nsd.registerService(info, NsdManager.PROTOCOL_DNS_SD, l)
+        listeners += l
     }
 
     /**
@@ -55,12 +92,12 @@ class BonjourAdvertiser(context: Context) {
             override fun onUnregistrationFailed(s: NsdServiceInfo, code: Int) { Log.e(TAG, "unregister failed $code") }
         }
         nsd.registerService(info, NsdManager.PROTOCOL_DNS_SD, l)
-        listener = l
+        listeners += l
     }
 
     fun unregister() {
-        listener?.let { runCatching { nsd.unregisterService(it) } }
-        listener = null
+        listeners.forEach { runCatching { nsd.unregisterService(it) } }
+        listeners.clear()
     }
 
     companion object { private const val TAG = "BonjourAdvertiser" }

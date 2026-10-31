@@ -20,6 +20,12 @@ target_include_directories(plist PUBLIC
     ${TP}/libplist/src
     ${TP}/libplist/libcnary/include)
 
+# --- Apple ALAC decoder (Apache-2.0; decoder half only) ---
+# Audio-only AirPlay (e.g. Music) sends ALAC, which Android has no decoder for.
+file(GLOB ALAC_SRC ${TP}/alac/*.c ${TP}/alac/*.cpp)
+add_library(alac STATIC ${ALAC_SRC})
+target_include_directories(alac PUBLIC ${TP}/alac)
+
 # --- llhttp + playfair (part of the airplay core) ---
 file(GLOB LLHTTP_SRC ${CMAKE_CURRENT_SOURCE_DIR}/airplay/llhttp/*.c)
 file(GLOB PLAYFAIR_SRC ${CMAKE_CURRENT_SOURCE_DIR}/airplay/playfair/*.c)
@@ -43,4 +49,4 @@ target_include_directories(airplaycore PRIVATE
 # Our vendored libplist is 2.6, so select the modern plist API branches.
 target_compile_definitions(airplaycore PRIVATE PLIST_210 PLIST_230)
 
-target_link_libraries(airplaycore plist crypto log android)
+target_link_libraries(airplaycore plist alac crypto log android)

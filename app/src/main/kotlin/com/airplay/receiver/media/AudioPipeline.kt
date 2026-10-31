@@ -16,7 +16,8 @@ import kotlin.math.pow
  *
  * Formats and csd follow the Sony spec (AACELDNdkDecoder_Configure): AAC-ELD is
  * what macOS screen mirroring sends (44.1 kHz stereo, 480-sample frames),
- * decoded by Google's software AAC decoder; ALAC has no platform decoder.
+ * decoded by Google's software AAC decoder. ALAC (audio-only AirPlay) has no
+ * platform decoder, so the native core decodes it and hands up PCM.
  *
  * Packets arrive on the core's audio thread; configure/stop/volume on others.
  * Everything is guarded by [lock].
@@ -43,14 +44,21 @@ class AudioPipeline {
                 openTrackLocked()
                 openAacDecoderLocked(csd0 ?: defaultCsd(format))
             }
-            FORMAT_ALAC -> Log.w(TAG, "ALAC audio not supported yet; playing silence")
+            FORMAT_ALAC -> openTrackLocked()   // decoded natively; packets arrive as PCM
             else -> Log.w(TAG, "unknown audio format $format")
         }
         Log.i(TAG, "audio configured fmt=$format ${sampleRate}Hz/${channels}ch decoder=${codec?.name}")
     }
 
-    /** One encoded access unit. [ptsUs]: sender timestamp (ordering only for now). */
+    /**
+     * One packet: an encoded AAC access unit, or for ALAC 16-bit PCM already
+     * decoded by the native core. [ptsUs]: sender timestamp (ordering only for now).
+     */
     fun submit(data: ByteArray, ptsUs: Long): Unit = synchronized(lock) {
+        if (format == FORMAT_ALAC) {
+            track?.write(data, 0, data.size, AudioTrack.WRITE_BLOCKING)
+            return
+        }
         val mc = codec ?: return
         try {
             // A short wait instead of 0: with 0 a momentarily busy decoder made

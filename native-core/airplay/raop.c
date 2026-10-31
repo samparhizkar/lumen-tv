@@ -31,6 +31,10 @@
 #include "compat.h"
 #include "raop_rtp_mirror.h"
 #include "raop_ntp.h"
+#include "raop_rsa.h"
+
+#include <ctype.h>
+#include <openssl/evp.h>
 
 
 /* libplist-2.3.0  API change */
@@ -52,6 +56,7 @@ struct raop_s {
     /* Pairing, HTTP daemon and RSA key */
     pairing_t *pairing;
     httpd_t *httpd;
+    unsigned char hw_addr[6];   /* classic speaker id, signed into the RAOP Apple-Response */
 
     dnssd_t *dnssd;
 
@@ -121,6 +126,14 @@ struct raop_conn_s {
     char *client_session_id;
     bool authenticated;
     bool have_active_remote;
+
+    /* classic RAOP (macOS audio-only): stream parameters from ANNOUNCE, used by its SETUP */
+    unsigned char fp_type;      /* FairPlay challenge type from fp-setup (0x02 or 0x03) */
+    bool have_announce;
+    unsigned char announce_aeskey[16];
+    unsigned char announce_aesiv[16];
+    unsigned char announce_ct;
+    unsigned short announce_spf;
 };
 typedef struct raop_conn_s raop_conn_t;
 
@@ -401,7 +414,7 @@ conn_request(void *ptr, http_request_t *request, http_response_t **response) {
         assert(!strcmp(client_session_id, conn->client_session_id));
     }
 
-    logger_log(raop->logger, LOGGER_DEBUG, "Handling request %s with URL %s", method, url);
+    if (strcmp(url, "/feedback")) logger_log(raop->logger, LOGGER_INFO, "Handling request %s with URL %s", method, url);
     raop_handler_t handler = NULL;
     if (!hls_request && !strcmp(protocol, "RTSP/1.0")) {
         if (!strcmp(method, "POST")) {
@@ -426,6 +439,8 @@ conn_request(void *ptr, http_request_t *request, http_response_t **response) {
             }
         } else if (!strcmp(method, "OPTIONS")) {
             handler = &raop_handler_options;
+        } else if (!strcmp(method, "ANNOUNCE")) {
+            handler = &raop_handler_announce;
         } else if (!strcmp(method, "SETUP")) {
             raop->hls_pending = false;
             handler = &raop_handler_setup;
@@ -479,6 +494,17 @@ conn_request(void *ptr, http_request_t *request, http_response_t **response) {
 
     if (handler != NULL) {
         handler(conn, request, *response, &response_data, &response_datalen);
+        /* classic RAOP senders (RSA auth) verify us with an Apple-Challenge on any request */
+        const char *challenge = http_request_get_header(request, "Apple-Challenge");
+        if (challenge) {
+            char apple_response[400];
+            if (!raop_rsa_apple_response(challenge, conn->local, conn->locallen, raop->hw_addr,
+                                         apple_response, sizeof(apple_response))) {
+                http_response_add_header(*response, "Apple-Response", apple_response);
+            } else {
+                logger_log(raop->logger, LOGGER_ERR, "could not answer Apple-Challenge");
+            }
+        }
     } else {
         logger_log(raop->logger, LOGGER_INFO,
                    "Unhandled Client Request: %s %s %s", method, url, protocol);
@@ -817,6 +843,15 @@ raop_set_dnssd(raop_t *raop, dnssd_t *dnssd) {
     assert(dnssd);
     dnssd_set_pk(dnssd, raop->pk_str);
     raop->dnssd = dnssd;
+    int hw_len = 0;
+    const char *hw = dnssd_get_hw_addr(dnssd, &hw_len);
+    if (hw && hw_len == 6) {
+        /* The classic _raop speaker is advertised under its own id (device id with
+         * 0x04 flipped in the first octet; BonjourAdvertiser does the same): a Mac
+         * that sees _airplay under the same id wraps its key with FairPlay v2. */
+        memcpy(raop->hw_addr, hw, 6);
+        raop->hw_addr[0] ^= 0x04;
+    }
 }
 
 void

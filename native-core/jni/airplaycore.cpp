@@ -10,7 +10,12 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <mutex>
 #include <string>
+#include <vector>
+
+#include "ALACBitUtilities.h"
+#include "ALACDecoder.h"
 
 extern "C" {
 #include "raop.h"
@@ -98,7 +103,45 @@ void cb_conn_init(void *cls) {
     g_capture_clock = CaptureClock();   // a new sender has an unrelated clock
     Env e; if (e.env && g_self) e.env->CallVoidMethod(g_self, m_sessionStart);
 }
+// --- ALAC (audio-only AirPlay) ----------------------------------------------
+// Android has no ALAC decoder, so ALAC is decoded here (Apple's reference
+// decoder) and handed up as 16-bit PCM. Created at the audio SETUP on the
+// httpd thread, used on the core's audio thread: guarded by g_alac_mutex.
+std::mutex g_alac_mutex;
+ALACDecoder *g_alac = nullptr;
+std::vector<uint8_t> g_alac_pcm;
+
+/** (Re)creates the decoder for [frame_length]-sample frames; 0 destroys it. */
+void alac_reset(uint32_t frame_length) {
+    std::lock_guard<std::mutex> lock(g_alac_mutex);
+    delete g_alac;
+    g_alac = nullptr;
+    if (frame_length == 0) return;
+    // AirPlay's ALAC "magic cookie" is an ALACSpecificConfig in big-endian. It
+    // is fixed for AirPlay (16-bit stereo 44.1 kHz, Apple's default tuning
+    // pb/mb/kb = 40/10/14, maxRun 255); only the frame size varies.
+    uint8_t cookie[24] = {0};
+    auto be32 = [&](int at, uint32_t v) {
+        cookie[at] = v >> 24; cookie[at + 1] = v >> 16; cookie[at + 2] = v >> 8; cookie[at + 3] = v;
+    };
+    be32(0, frame_length);
+    cookie[5] = 16;                                   // bitDepth (compatibleVersion 0)
+    cookie[6] = 40; cookie[7] = 10; cookie[8] = 14;   // pb, mb, kb
+    cookie[9] = 2;                                    // channels
+    cookie[11] = 255;                                 // maxRun (big-endian u16)
+    be32(20, 44100);                                  // sampleRate (maxFrameBytes, avgBitRate 0)
+    auto *dec = new ALACDecoder();
+    if (dec->Init(cookie, sizeof(cookie)) != 0) {
+        LOG("ALAC decoder init failed");
+        delete dec;
+        return;
+    }
+    g_alac = dec;
+    g_alac_pcm.resize((size_t) frame_length * 2 /*ch*/ * 2 /*bytes*/);
+}
+
 void cb_conn_destroy(void *cls) {
+    alac_reset(0);
     Env e; if (e.env && g_self) e.env->CallVoidMethod(g_self, m_sessionEnd);
 }
 
@@ -180,18 +223,37 @@ void cb_audio_get_format(void *cls, unsigned char *ct, unsigned short *spf,
         (unsigned long long) *audioFormat);
     jint format;   // AudioPipeline.FORMAT_*
     switch (*ct) {
-        case 2: format = 0; break;   // ALAC
+        case 2: format = 0; break;   // ALAC: decoded here, delivered as PCM
         case 4: format = 1; break;   // AAC-LC
         case 8: format = 2; break;   // AAC-ELD
         default: format = -1; break;
     }
+    alac_reset(*ct == 2 ? (*spf ? *spf : 352) : 0);
     Env e; if (!e.env || !g_self) return;
     e.env->CallVoidMethod(g_self, m_audioConfig, format, (jint) 44100, (jint) 2, (jbyteArray) nullptr);
 }
 
 void cb_audio_process(void *cls, raop_ntp_t *ntp, audio_decode_struct *data) {
     Env e; if (!e.env || !g_self || !data) return;
-    jbyteArray buf = toBytes(e.env, data->data, data->data_len);
+    jbyteArray buf;
+    if (data->ct == 2) {
+        // ALAC: decode to interleaved 16-bit PCM before handing up.
+        std::lock_guard<std::mutex> lock(g_alac_mutex);
+        if (!g_alac) return;
+        BitBuffer bits;
+        BitBufferInit(&bits, data->data, (uint32_t) data->data_len);
+        uint32_t frames = 0;
+        int32_t status = g_alac->Decode(&bits, g_alac_pcm.data(), g_alac->mConfig.frameLength, 2, &frames);
+        // A wrong AES key shows up as failing decodes; log the first few.
+        static int failures = 0;
+        if ((status != 0 || frames == 0) && failures++ < 5) {
+            LOG("ALAC decode failed: status %d, %d bytes", (int) status, data->data_len);
+        }
+        if (status != 0 || frames == 0) return;
+        buf = toBytes(e.env, g_alac_pcm.data(), (int) (frames * 2 * 2));
+    } else {
+        buf = toBytes(e.env, data->data, data->data_len);
+    }
     // Sender timestamp (ns on the sender's clock) as µs; ntp_time_local stays 0
     // because the core's NTP exchange never completes (see CaptureClock).
     e.env->CallVoidMethod(g_self, m_audioPacket, buf, (jlong) (data->ntp_time_remote / 1000));
@@ -301,7 +363,7 @@ Java_com_airplay_receiver_net_AirPlayCore_nativeStart(JNIEnv *env, jobject thiz,
 
     // The core asserts a log callback is set before it logs (httpd_start logs).
     raop_set_log_callback(g_raop, cb_log, nullptr);
-    raop_set_log_level(g_raop, 5 /*LOGGER_INFO*/);
+    raop_set_log_level(g_raop, LOGGER_INFO);
 
     // Advertise 1080p60 to the sender. The core defaults maxFPS=30, which makes
     // macOS send only 30fps; bump it and pin the display size to 1080p.
@@ -322,8 +384,11 @@ Java_com_airplay_receiver_net_AirPlayCore_nativeStart(JNIEnv *env, jobject thiz,
     int dnssd_err = 0;
     g_dnssd = dnssd_init(dev, (int) strlen(dev), hw_addr, sizeof(hw_addr), 0, &dnssd_err);
     env->ReleaseStringUTFChars(deviceName, dev);
-    if (g_dnssd) raop_set_dnssd(g_raop, g_dnssd);
-    else LOG("dnssd_init failed err=%d", dnssd_err);
+    if (g_dnssd) {
+        raop_set_dnssd(g_raop, g_dnssd);
+    } else {
+        LOG("dnssd_init failed err=%d", dnssd_err);
+    }
 
     unsigned short p = (unsigned short) port;
     raop_start_httpd(g_raop, &p);
@@ -379,5 +444,6 @@ extern "C" JNIEXPORT void JNICALL
 Java_com_airplay_receiver_net_AirPlayCore_nativeStop(JNIEnv *env, jobject thiz) {
     if (g_raop) { raop_stop_httpd(g_raop); raop_destroy(g_raop); g_raop = nullptr; }
     if (g_dnssd) { dnssd_destroy(g_dnssd); g_dnssd = nullptr; }
+    alac_reset(0);
     if (g_self) { env->DeleteGlobalRef(g_self); g_self = nullptr; }
 }
