@@ -35,7 +35,10 @@ class AirPlayCore(private val cb: Callbacks) {
     }
 
     /** Starts the RTSP/HTTP server on [port] (7000) and returns the TXT record. */
-    external fun nativeStart(deviceName: String, port: Int): Map<String, String>
+    external fun nativeStart(deviceName: String, port: Int, deviceId: ByteArray): Map<String, String>
+
+    /** The port the core listens on: [nativeStart]'s, or a free one if that was taken. */
+    external fun nativePort(): Int
     external fun nativeStop()
 
     // --- forwarding targets called from native (JNI) ---

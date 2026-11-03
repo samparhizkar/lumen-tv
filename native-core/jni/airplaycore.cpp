@@ -300,6 +300,14 @@ void st_get_custom_profile(void *cls, const char **p) { if (p) *p = nullptr; }
 
 // --- JNI entry points -------------------------------------------------------
 
+/* The port the core actually listens on (7000, or a free one if that's taken). */
+static unsigned short g_port = 0;
+
+extern "C" JNIEXPORT jint JNICALL
+Java_io_github_samparhizkar_lumen_net_AirPlayCore_nativePort(JNIEnv *, jobject) {
+    return g_port;
+}
+
 extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *) {
     g_vm = vm;
     return JNI_VERSION_1_6;
@@ -307,7 +315,7 @@ extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *) {
 
 extern "C" JNIEXPORT jobject JNICALL
 Java_io_github_samparhizkar_lumen_net_AirPlayCore_nativeStart(JNIEnv *env, jobject thiz,
-                                                      jstring deviceName, jint port) {
+                                                      jstring deviceName, jint port, jbyteArray deviceId) {
     g_self = env->NewGlobalRef(thiz);
     jclass cls = env->GetObjectClass(thiz);
     m_videoConfig = env->GetMethodID(cls, "nvVideoConfig", "(III[B[B)V");
@@ -379,8 +387,12 @@ Java_io_github_samparhizkar_lumen_net_AirPlayCore_nativeStart(JNIEnv *env, jobje
     raop_init2(g_raop, 1 /*nohold*/, dev, "" /*keyfile*/);
 
     // dnssd holds the name / MAC / feature bits used in the /info response.
-    // hw_addr is a stable 6-byte id; TODO surface the real Wi-Fi MAC from Kotlin.
-    static const char hw_addr[6] = {0x02, 0x00, 0x00, 0x48, 0x4F, 0x4D};
+    // hw_addr is the install's own 6-byte id (Prefs.deviceId): apps can't read
+    // the Wi-Fi MAC, and a fixed id made two TVs look like one device to senders.
+    char hw_addr[6] = {0x02, 0x00, 0x00, 0x48, 0x4F, 0x4D};
+    if (deviceId && env->GetArrayLength(deviceId) == 6) {
+        env->GetByteArrayRegion(deviceId, 0, 6, (jbyte *) hw_addr);
+    }
     int dnssd_err = 0;
     g_dnssd = dnssd_init(dev, (int) strlen(dev), hw_addr, sizeof(hw_addr), 0, &dnssd_err);
     env->ReleaseStringUTFChars(deviceName, dev);
@@ -390,8 +402,15 @@ Java_io_github_samparhizkar_lumen_net_AirPlayCore_nativeStart(JNIEnv *env, jobje
         LOG("dnssd_init failed err=%d", dnssd_err);
     }
 
+    // 7000 is AirPlay's usual port, but a TV with its own AirPlay (e.g. a Sony)
+    // already holds it; senders find the port through Bonjour, so any port works.
     unsigned short p = (unsigned short) port;
-    raop_start_httpd(g_raop, &p);
+    if (raop_start_httpd(g_raop, &p) <= 0 && port != 0) {
+        LOG("port %d is taken, using a free one", port);
+        p = 0;
+        if (raop_start_httpd(g_raop, &p) <= 0) p = 0;
+    }
+    g_port = p;
     LOG("airplay core started on port %u", p);
 
     // Build the _airplay._tcp TXT record iOS needs to offer mirroring. The key

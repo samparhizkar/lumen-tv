@@ -2,6 +2,7 @@ package io.github.samparhizkar.lumen
 
 import android.content.Context
 import android.os.Build
+import java.security.SecureRandom
 import android.provider.Settings
 
 /** User-facing settings, SharedPreferences-backed. */
@@ -12,6 +13,21 @@ class Prefs(context: Context) {
     var deviceName: String
         get() = sp.getString(KEY_NAME, null) ?: defaultName()
         set(v) = sp.edit().putString(KEY_NAME, v.trim().ifBlank { defaultName() }).apply()
+
+    /**
+     * This install's AirPlay device id (a MAC-style 6 bytes), random and kept for
+     * good: apps can't read the Wi-Fi MAC, and two TVs sharing an id look like
+     * one device to iPhones and Macs. Locally administered, unicast.
+     */
+    val deviceId: ByteArray
+        get() {
+            sp.getString(KEY_DEVICE_ID, null)?.chunked(2)?.map { it.toInt(16).toByte() }
+                ?.takeIf { it.size == 6 }?.let { return it.toByteArray() }
+            val id = ByteArray(6).also { SecureRandom().nextBytes(it) }
+            id[0] = ((id[0].toInt() and 0xFC) or 0x02).toByte()
+            sp.edit().putString(KEY_DEVICE_ID, id.joinToString("") { "%02X".format(it) }).apply()
+            return id
+        }
 
     /** Whether the user has named this TV yet (Home asks which room it's in on first run). */
     val hasChosenName: Boolean
@@ -48,6 +64,7 @@ class Prefs(context: Context) {
     companion object {
         const val DEFAULT_NAME = "Living Room TV"
         private const val KEY_NAME = "device_name"
+        private const val KEY_DEVICE_ID = "device_id"
         private const val KEY_AUTOSTART = "autostart"
         private const val KEY_PIN = "require_pin"
         private const val KEY_ACCURATE_COLORS = "accurate_colors"

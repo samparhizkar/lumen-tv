@@ -61,12 +61,14 @@ class AirPlayService : Service() {
             }
         })
 
-        val name = Prefs(this).deviceName
-        val txt = runCatching { c.nativeStart(name, PORT) }.getOrDefault(defaultTxt())
-        advertiser.register(name, PORT, txt)
+        val prefs = Prefs(this)
+        val name = prefs.deviceName
+        val txt = runCatching { c.nativeStart(name, PORT, prefs.deviceId) }.getOrDefault(defaultTxt())
+        val port = runCatching { c.nativePort() }.getOrDefault(0).takeIf { it > 0 } ?: PORT
+        advertiser.register(name, port, txt)
         core = c
         ReceiverState.setReady(name, HomeActivity.localIp())
-        Log.i(TAG, "AirPlay service up on :$PORT as '$name'")
+        Log.i(TAG, "AirPlay service up on :$port as '$name'")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int) = START_STICKY
