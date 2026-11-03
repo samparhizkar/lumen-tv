@@ -14,8 +14,8 @@ android {
         applicationId = "io.github.samparhizkar.lumen"
         minSdk = 28          // Sony dongle is API 34; keep headroom for other boxes
         targetSdk = 34
-        versionCode = 6
-        versionName = "0.5.1"
+        versionCode = 7
+        versionName = "0.5.2"
         ndk {
             // Homatics dongle userspace is 32-bit only.
             abiFilters += listOf("armeabi-v7a")

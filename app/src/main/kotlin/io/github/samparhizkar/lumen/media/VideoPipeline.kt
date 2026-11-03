@@ -65,6 +65,13 @@ class VideoPipeline(
     private var shownOnTime = 0
     private var shownImmediately = 0
 
+    // Decoder latency (queued -> decoded), for the pacing log; guarded by [lock].
+    private val queuedAtNs = HashMap<Long, Long>()
+    private var decodeNsSum = 0L
+    private var decodeNsMax = 0L
+    private var decodeCount = 0
+    private var decoderName = ""
+
     val isRunning: Boolean get() = synchronized(lock) { codec != null }
 
     /**
@@ -83,8 +90,17 @@ class VideoPipeline(
             setInteger(MediaFormat.KEY_MAX_WIDTH, maxOf(w, 3840))
             setInteger(MediaFormat.KEY_MAX_HEIGHT, maxOf(h, 2160))
             setInteger("feature-adaptive-playback", 1)
+            // Only where the decoder reports support (Android 11+): the Sony's
+            // Android 10 MediaTek decoder fails configure on an unknown low-latency.
             if (preferLowLatency && supportsLowLatency(name, codecType.mime)) {
                 setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
+            }
+            if (name.contains("mtk", ignoreCase = true)) {
+                // MediaTek's own low-latency switch (as Moonlight uses).
+                if (preferLowLatency) setInteger("vdec-lowlatency", 1)
+                // Sony BRAVIA: its own AirPlay sends decoded frames straight to the
+                // TV's main video plane with this vendor key, skipping a resize stage.
+                setString("X-tv-output-path", "OUTPUT_VIDEO_MAIN")
             }
             if (csd0.remaining() > 0) setByteBuffer("csd-0", csd0)
             csd1?.takeIf { it.remaining() > 0 }?.let { setByteBuffer("csd-1", it) }
@@ -95,7 +111,9 @@ class VideoPipeline(
         codecHandler = Handler(ht.looper)
         mc.setCallback(callback, codecHandler)
         mc.configure(fmt, surface, null, 0)
-        synchronized(lock) { codec = mc; thread = ht }
+        synchronized(lock) {
+            codec = mc; thread = ht; decoderName = name; queuedAtNs.clear()
+        }
         mc.start()
         Log.i(TAG, "started $name ${w}x$h mime=${codecType.mime}")
     }
@@ -149,7 +167,14 @@ class VideoPipeline(
         }
 
         override fun onOutputBufferAvailable(mc: MediaCodec, index: Int, info: MediaCodec.BufferInfo) {
-            synchronized(lock) { if (mc !== codec) return }
+            synchronized(lock) {
+                if (mc !== codec) return
+                queuedAtNs.remove(info.presentationTimeUs)?.let {
+                    val d = System.nanoTime() - it
+                    decodeNsSum += d; decodeCount++
+                    if (d > decodeNsMax) decodeNsMax = d
+                }
+            }
             // presentationTimeUs carries the capture time (see drainLocked).
             val renderAtNs = pacer.scheduleFor(info.presentationTimeUs * 1_000, System.nanoTime())
             val handler = codecHandler
@@ -164,8 +189,12 @@ class VideoPipeline(
             }
             if (renderAtNs == null) shownImmediately++ else shownOnTime++
             if (shownOnTime + shownImmediately >= STATS_EVERY) {
-                Log.i(TAG, "pacing: delay %.1f ms, %d scheduled, %d immediate".format(
-                    pacer.delayMs, shownOnTime, shownImmediately))
+                synchronized(lock) {
+                    Log.i(TAG, "pacing: delay %.1f ms, %d scheduled, %d immediate | decode %s avg %.1f ms, max %.1f ms".format(
+                        pacer.delayMs, shownOnTime, shownImmediately, decoderName,
+                        if (decodeCount > 0) decodeNsSum / 1e6 / decodeCount else 0.0, decodeNsMax / 1e6))
+                    decodeNsSum = 0; decodeNsMax = 0; decodeCount = 0
+                }
                 shownOnTime = 0; shownImmediately = 0
             }
         }
@@ -195,9 +224,13 @@ class VideoPipeline(
                 val idx = freeInputs.removeFirst()
                 val f = pending.removeFirst()
                 val buf = mc.getInputBuffer(idx) ?: continue
+                val size = f.data.remaining()
                 buf.clear(); buf.put(f.data)
                 val flags = if (f.config) MediaCodec.BUFFER_FLAG_CODEC_CONFIG else 0
-                mc.queueInputBuffer(idx, 0, f.data.limit(), f.captureNs / 1_000, flags)
+                val ptsUs = f.captureNs / 1_000
+                mc.queueInputBuffer(idx, 0, size, ptsUs, flags)
+                if (queuedAtNs.size > 240) queuedAtNs.clear()  // outputs dropped by the decoder
+                queuedAtNs[ptsUs] = System.nanoTime()
             }
         } catch (e: IllegalStateException) {
             Log.w(TAG, "decoder not accepting input", e)
